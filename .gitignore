@@ -1,0 +1,16 @@
+# mdBook build output
+/book/
+
+# macOS noise
+.DS_Store
+
+# Editor scratch files
+*.bak
+*.swp
+*~
+.vscode/
+.idea/
+
+# Local-only configuration
+.env
+.env.*

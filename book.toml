@@ -1,0 +1,37 @@
+[book]
+title = "Konstruct Protocol Specification"
+description = "Public technical specification of the Konstruct messenger protocol — verified against the open-source implementation."
+authors = ["Max Eliseyev"]
+language = "en"
+multilingual = false
+src = "src"
+
+[output.html]
+# Default landing page = introduction (per SUMMARY.md).
+# Single-page reading is available at /print.html (concatenates all chapters,
+# enables Ctrl+F across the whole document, and is what most readers will
+# want for a first pass). Linked prominently from the introduction.
+edit-url-template = "https://github.com/konstruct-msg/construct-protocol/edit/main/{path}"
+git-repository-url = "https://github.com/konstruct-msg/construct-protocol"
+git-repository-icon = "fa-github"
+default-theme = "navy"
+preferred-dark-theme = "navy"
+no-section-label = false
+copy-fonts = true
+
+[output.html.print]
+enable = true
+page-break = false
+
+[output.html.fold]
+enable = false
+
+[output.html.search]
+enable = true
+limit-results = 30
+use-boolean-and = true
+boost-title = 2
+boost-hierarchy = 1
+boost-paragraph = 1
+expand = true
+heading-split-level = 3
