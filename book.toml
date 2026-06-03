@@ -3,7 +3,6 @@ title = "Konstruct Protocol Specification"
 description = "Public technical specification of the Konstruct messenger protocol — verified against the open-source implementation."
 authors = ["Max Eliseyev"]
 language = "en"
-multilingual = false
 src = "src"
 
 [output.html]

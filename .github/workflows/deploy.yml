@@ -27,7 +27,10 @@ jobs:
       - name: Install mdBook
         uses: peaceiris/actions-mdbook@v2
         with:
-          mdbook-version: 'latest'
+          # Pinned to avoid surprise breaks when mdBook drops or renames a
+          # book.toml field (e.g. v0.4.50 removed `multilingual` which earlier
+          # versions accepted). Bump deliberately + re-test locally.
+          mdbook-version: '0.4.50'
 
       - name: Build the book
         run: mdbook build
