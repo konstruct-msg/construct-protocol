@@ -42,6 +42,11 @@ RESPONDER role separation), and verified-against-code parameter values.
   component matrix (what's implemented, what's stubbed, what's open
   security issue), platform support matrix, open issue tracker
   (`BS-3`, `BS-6`, `SEC-005`, `SEC-006`, `SEC-009`).
+- [Appendix A — Error Registry](./appendix-a-errors.md) — every error
+  variant a conforming client can observe, organised by surface
+  (FFI / CFE / WirePayload / padding / internal / MLS / VEIL / gRPC).
+  Includes the auth-disposal rules that prevent accidental device-key
+  deletion on transient transport failures.
 - [Disclosure & Contact](./disclosure.md) — GitHub Security Advisories
   per repository; no email inbox.
 
@@ -67,7 +72,6 @@ RESPONDER role separation), and verified-against-code parameter values.
   but not yet documented at protocol-spec level).
 - Federation (server-to-server) protocol — currently single-server.
 - Wire-format reference appendix with hex-dumped example handshakes.
-- Error code registry.
 
 ### Removed from this revision compared with the internal draft
 

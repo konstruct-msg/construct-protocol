@@ -14,5 +14,9 @@
 
 ---
 
+- [Appendix A — Error Registry](./appendix-a-errors.md)
+
+---
+
 [Disclosure & Contact](./disclosure.md)
 [Changelog](./changelog.md)
