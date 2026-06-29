@@ -65,6 +65,13 @@ RESPONDER role separation), and verified-against-code parameter values.
 - **Federation, P2P, sealed sender, MLS** — explicitly marked as
   not-yet-implemented rather than present-tense claims.
 
+## v0.1.1 — *unreleased*
+
+- **ML-DSA-65 hybrid signatures** — status updated from "Not implemented"
+  to "Implemented (optional, feature-gated)" in the component matrix.
+  Server-side wire verification activated (`construct-server` `e2e.rs:318`),
+  closing the last gap that kept PQ signatures decorative.
+
 ### Known gaps for v0.2
 
 - Published test vectors for the X3DH and Double Ratchet operations.

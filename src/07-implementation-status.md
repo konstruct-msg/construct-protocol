@@ -27,7 +27,7 @@ reference so it can be re-verified independently.
 | BIP39 / SLIP-39 social recovery | **Implemented** | `construct-core/src/crypto/social_recovery.rs` |
 | Privacy Pass token issuance | **Implemented** (feature-gated) | `construct-core/src/crypto/privacy_pass/` |
 | Key transparency log verification | **Stub** — server side not yet shipping the log | `construct-core/src/crypto/key_transparency.rs` |
-| ML-DSA-65 (hybrid PQ signatures) | **Not implemented.** Suite 2 signatures are Ed25519. | mentioned only in `crypto/suites/mod.rs` comment |
+| ML-DSA-65 hybrid PQ signatures (Ed25519 + ML-DSA-65) | **Implemented**, opt-in via `post-quantum` feature flag | `construct-crypto/src/pqc/hybrid.rs`; server wire-up in `construct-server/e2e.rs:318` |
 | Sealed sender | **Not implemented.** Server still sees `sender_id` in `MessageStream`. | — |
 | Federation (S2S) | **Not implemented.** Single trusted server today. | — |
 | Direct P2P delivery | **Not implemented.** All traffic via server. | — |
