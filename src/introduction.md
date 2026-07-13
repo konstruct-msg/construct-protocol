@@ -1,6 +1,6 @@
 # Introduction
 
-> **Document status:** v0.1.0 — early draft.
+> **Document status:** v0.1.2 — early draft.
 > **Implementation reference:** `construct-core` v0.9.x (see [Implementation Status](./07-implementation-status.md)).
 > **Document license:** [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) ·
 > **Reference implementation:** MIT.
@@ -64,10 +64,12 @@ public reference implementation
 | Cryptographic core (X3DH, Double Ratchet, hybrid PQ KEM) | Implemented and used in production by the iOS TestFlight build. |
 | iOS / macOS client | Production-quality code, distributed via [TestFlight beta](https://testflight.apple.com/join/NH3WssFh). No public App Store release yet. |
 | Android client | Phase 0 — Rust core builds, Kotlin wrapper not yet written. |
-| Federation (server-to-server) | Designed but not implemented. Single-server today. |
+| Federation (server-to-server) | **Implemented** — inbound + outbound sealed delivery, Ed25519-signed. Multi-node interoperability test outstanding. |
+| Sealed sender | **Implemented** — the sealed path leaves no `sender_id` at rest. Making it the enforced default is in progress. |
 | MLS group chat | Implemented in `construct-core` but not yet documented at protocol-spec level. To be added in a future revision. |
-| VEIL transport (obfs4 + WebTunnel) | Deployed; throttled by active DPI in some regions. |
-| VEIL "veil-front" honest-front transport | Proof-of-concept; not yet ready for use. |
+| QUIC / HTTP-3 transport | **In production** — plain QUIC (`construct-transport`), always-on with an HTTP/2 fallback. |
+| VEIL veil-front (honest-front transport) | **In production** — the primary obfuscation transport for censored networks. |
+| VEIL obfs4 / WebTunnel (legacy) | **Retired** — cut by active DPI in the target region; superseded by veil-front, standalone relay archived. |
 | External security audit | Planned. Not yet performed. |
 
 ## Document layout

@@ -92,3 +92,27 @@ copied:
   implementation" — aspirational, not done.
 - Some roadmap dates from the internal draft, which belong on the
   marketing site rather than in a normative specification.
+
+## v0.1.2 — *unreleased*
+
+- **New [Architecture Overview](./architecture-overview.md) chapter** — an
+  orientation map of the whole system: the always-on E2EE floor, the layered
+  model (transport, entry discovery, route, overlay, delivery) and its offline
+  mesh foundation, and how the system degrades gracefully across censorship
+  tiers (free → DPI blacklist → national allowlist → blackout). Descriptive
+  architecture; normative detail stays in the per-component chapters.
+- **Status reconciliation against current code.** Several component statuses
+  that were accurate at v0.1.0 have since shipped:
+  - **Federation (server-to-server)** — "not implemented" → **implemented**
+    (inbound + outbound sealed delivery, Ed25519-signed; multi-node
+    interoperability test outstanding).
+  - **Sealed sender** — "not implemented" → **implemented** (sealed path
+    carries no `sender_id` at rest; enforced-default rollout in progress).
+  - **VEIL transport** — **veil-front** is now the production obfuscation
+    transport; **obfs4 / WebTunnel** are **retired** (were "deployed" /
+    "proof-of-concept").
+  - **QUIC / HTTP-3** (`construct-transport`) — recorded as a production
+    transport with HTTP/2 fallback; not yet normatively specified.
+
+  Federation and sealed sender, listed as v0.2 gaps under v0.1.1, are now
+  implemented.

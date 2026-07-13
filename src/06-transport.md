@@ -28,7 +28,7 @@ Keywords MUST, MUST NOT, SHOULD, MAY are per
    gRPC bidirectional stream (§6.4) — HTTP/2 over TLS 1.3
           │
           ▼  (optional, when direct TLS is blocked)
-   VEIL tier (§6.5) — obfs4 / WebTunnel / [planned] veil-front
+   VEIL tier (§6.5) — veil-front  (obfs4 / WebTunnel retired)
           │
           ▼
    TCP / QUIC over the public internet
@@ -36,6 +36,11 @@ Keywords MUST, MUST NOT, SHOULD, MAY are per
 
 Layers below Konstruct (TLS 1.3, HTTP/2, TCP, QUIC) are standard and
 out of scope here.
+
+A QUIC/HTTP-3 transport (`construct-transport`) is also in production as
+an alternative to the HTTP/2 path, selected by the client-side transport
+router with an HTTP/2 fallback; it is not yet specified normatively in
+this chapter (planned for a future revision).
 
 ## 6.2 Wire format (WirePayload)
 
@@ -151,9 +156,8 @@ backend strategies:
 
 | Backend | Status | Wire shape on the network |
 |---|---|---|
-| **obfs4** | Deployed | Tor-style obfuscated stream; visually indistinguishable from random bytes; recognisable by DPI heuristics that target obfs4. |
-| **WebTunnel** | Deployed | HTTP/1.1 Upgrade to WebSocket-over-TLS; visually a normal `wss://`. |
-| **veil-front** | Proof-of-concept | TLS 1.3 to an honest cover application; the relay routes valid AUTH frames to the tunnel and everything else to the cover app via a constant-shape gate. |
+| **veil-front** | **Production** | TLS 1.3 to an honest cover application; the relay routes valid AUTH frames to the tunnel and everything else to the cover app via a constant-shape gate. The primary (and only production) obfuscation backend on mobile. |
+| **obfs4** / **WebTunnel** | **Retired** | Superseded by veil-front and cut by active DPI in the target region. Adapters remain in-tree but are not registered on mobile builds; the standalone relay repository is archived. |
 
 The VEIL coordinator (in `construct-veil/src/veil/coordinator.rs`)
 runs a *happy-eyeballs probe race* over the configured backends and
@@ -174,7 +178,7 @@ A client MUST honour:
 
 ### 6.5.2 Constant-shape gate (veil-front)
 
-For the in-progress veil-front backend, the relay MUST satisfy:
+For the veil-front backend, the relay MUST satisfy:
 
 - Failed authentication MUST be routed to the cover application using
   the cover's own response timing and shape. There MUST NOT be a
@@ -210,7 +214,7 @@ purpose is defeated.
 | IP visibility to the relay operator | Inherent; mitigated only by trusting the operator or routing through Tor. |
 | Server sees per-connection metadata (timestamps, peer IPs) | Inherent; minimise server-side logging. |
 | Active DPI can correlate obfs4 timing patterns | True; veil-front is the in-progress fix. |
-| Sender-id visible to the server in MessagingService | True; sealed-sender is planned, not deployed. |
+| Sender-id visible to the server on the non-sealed path | Sealed sender is implemented and removes `sender_id` on the sealed path; making sealed the enforced default (removing the non-sealed fallback) is in progress. |
 
 ## 6.7 Configuration constants summary
 

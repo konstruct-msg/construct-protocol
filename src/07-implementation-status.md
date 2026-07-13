@@ -28,8 +28,9 @@ reference so it can be re-verified independently.
 | Privacy Pass token issuance | **Implemented** (feature-gated) | `construct-core/src/crypto/privacy_pass/` |
 | Key transparency log verification | **Stub** — server side not yet shipping the log | `construct-core/src/crypto/key_transparency.rs` |
 | ML-DSA-65 hybrid PQ signatures (Ed25519 + ML-DSA-65) | **Implemented**, opt-in via `post-quantum` feature flag | `construct-crypto/src/pqc/hybrid.rs`; server wire-up in `construct-server/e2e.rs:318` |
-| Sealed sender | **Not implemented.** Server still sees `sender_id` in `MessageStream`. | — |
-| Federation (S2S) | **Not implemented.** Single trusted server today. | — |
+| Sealed sender | **Implemented** — the sealed path leaves no `sender_id` at rest; making sealed the enforced default (dropping the non-sealed fallback) is in progress. | `messaging-service/src/envelope.rs` |
+| Federation (S2S) | **Implemented** — inbound + outbound sealed delivery, Ed25519-signed, per-origin rate-limited. Multi-node interoperability test outstanding. | `messaging-service/src/federation.rs` |
+| QUIC / HTTP-3 transport | **In production** (plain QUIC); HTTP/2 fallback; per-packet obfuscation demoted to debug-only. | `construct-transport` |
 | Direct P2P delivery | **Not implemented.** All traffic via server. | — |
 | Formal verification (Kani / Prusti) | **Not started.** | — |
 | External cryptographic audit | **Not performed.** | — |
@@ -78,7 +79,9 @@ The reference includes:
 What is **not** covered today:
 
 - End-to-end multi-device tests (no multi-device support yet).
-- Federation behavioural tests (no federation yet).
+- Multi-node (two-VPS) federation interoperability test — federation is
+  implemented with contract-level tests, but the two-server integration test
+  is outstanding.
 - Formal verification (planned, not done).
 - Adversarial / red-team testing by an external party.
 
