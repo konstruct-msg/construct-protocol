@@ -73,6 +73,17 @@ operation; a mismatched suite MUST cause the message to be rejected.
 - The plaintext input to the AEAD MUST be the PKCS#7-padded plaintext
   (§5.7), not the raw application bytes.
 
+ChaCha20-Poly1305 is the AEAD for **Double Ratchet message payloads**. A
+second AEAD is used for **media attachments** (photos, video, files, voice
+messages): each attachment is encrypted client-side with **AES-256-GCM**
+under a fresh per-file 256-bit key, wire format `nonce(12) || ciphertext ||
+tag(16)`, before upload. The per-file key never reaches the media server —
+it travels end-to-end inside the (ChaCha20-Poly1305-sealed) message, so the
+server stores only an opaque encrypted blob. Reference: `construct-ios`
+`Services/MediaUploadService.swift:83` (`decryptMediaData`, 32-byte
+AES-256-GCM key). AES-256-GCM here rides Apple/hardware-accelerated
+`CryptoKit`; the Double Ratchet deliberately stays on ChaCha20-Poly1305.
+
 ### 2.2.4 HKDF-SHA-256
 
 - Algorithm: HKDF per [RFC 5869](https://www.rfc-editor.org/rfc/rfc5869),

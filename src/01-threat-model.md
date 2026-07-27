@@ -44,17 +44,49 @@ honest-but-curious, malicious, fully compromised. Konstruct's
 server is *blind to message content by construction* — the same key
 material the client uses to decrypt simply is not on the server.
 
-What the server can see today (single-trusted-server alpha):
+**Sealed sender is deployed and on by default.** Outgoing user traffic —
+messages, delivery receipts, call signalling, and the session-control
+handshake — is *sealed*: the client omits the `sender_id` from the outer
+envelope and seals a server-issued sender certificate to the recipient's
+identity key, so only the recipient can recover who sent a message. A
+compromised server therefore **cannot** read `sender_id` from sealed
+traffic and cannot directly reconstruct the `sender_id → recipient_id`
+edge for a sealed message.
 
-- Which user identifiers exchange messages, with what timestamps.
-- Connection metadata (IPs, TLS handshake fingerprint, session
-  durations).
+- Client policy (always-on in release builds): `construct-ios`
+  `Services/StealthPolicy.swift:42` (`isEnabled`), `:71`
+  (`shouldUseSealedSender`).
+- Envelope masking: `construct-ios`
+  `Networking/gRPC/Services/MessagingServiceClient.swift`
+  (`buildEnvelope` omits `sender`, `conversation_id`, and the real
+  `content_type` when a `SealedInner` is present).
+- Server handling: `messaging-service/src/envelope.rs:38`
+  (`if envelope.is_sealed_sender { … }` — the sender is hidden from the
+  proto).
+
+What the server can still see today (single-trusted-server alpha), even
+with sealed sender:
+
+- The **recipient** identifier and the delivery timestamp of each message.
+  (The sender is not in the sealed envelope.)
+- The pre-existing **contact graph** — contact relationships are stored to
+  route message streams.
+- **Ciphertext size after padding** and traffic timing/volume.
+- **Connection metadata** at the network layer: the source IP address
+  (unavoidable for packet routing), transport handshake characteristics,
+  and session durations. The server does **not** store the raw IP — its
+  anti-abuse rate-limit keys and logs use a salted one-way hash of the
+  address (`construct-utils/src/lib.rs:92` `hash_client_ip`, applied in
+  `construct-user-service/src/account.rs:140` and
+  `construct-auth-service/src/devices.rs:292`). The honest limit: a salted
+  hash of the small IPv4 address space is not perfectly anonymous against a
+  party holding the salt — it removes the raw address from storage, it does
+  not make the origin undiscoverable.
 - The encrypted payload bytes (it must, in order to route them).
 
-Sender-side metadata minimisation ("sealed sender") is on the roadmap
-but **not yet deployed** — until it is, a compromised server can
-correlate `sender_id` → `recipient_id` even though it cannot read what
-they said.
+Anti-abuse tokens (Privacy Pass) accompany sealed sends. Server-side token
+**enforcement** (`MSG_STEALTH_TOKEN_POLICY`) currently runs in `warn` mode,
+not `enforce` — see [Implementation Status](./07-implementation-status.md).
 
 ### Historical device adversary
 
@@ -91,9 +123,12 @@ Konstruct does **not** defend against:
   If the attacker has the running process, no end-to-end protocol can
   help.
 - OS-, kernel-, or secure-enclave-level compromise of the host
-  platform. Keys are stored using platform key stores (iOS Keychain
-  with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, etc.); if those
-  primitives are broken, so is everything that relies on them.
+  platform. Keys are stored using platform key stores (on iOS, the
+  Keychain; crypto and Double-Ratchet session state that must survive a
+  background/locked push-decrypt is gated
+  `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` —
+  `construct-ios` `Security/KeychainManager.swift:21` `cryptoKeyAccessible`);
+  if those primitives are broken, so is everything that relies on them.
 - Hardware-level side channels (Spectre, power analysis, EM
   emanations). Software-level constant-time primitives (`subtle`
   crate, audited AEAD implementations) are used where they apply; this

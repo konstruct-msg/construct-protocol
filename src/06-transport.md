@@ -194,6 +194,33 @@ veil-front; if a future deployment violates it, the wire becomes
 distinguishable from the cover application and the construction's
 purpose is defeated.
 
+### 6.5.3 Connection ladder and graceful degradation
+
+In `VeilMode = .auto` (the default) the client is **direct-first**: it
+attempts the plain gRPC/QUIC path first and escalates to VEIL only on a
+real connection failure. It MUST NOT pre-activate a relay purely because
+of coarse geography — a censored network that is momentarily reachable
+directly should use the direct path, and a relay is engaged only when the
+direct attempt actually fails.
+
+The result is a ladder that degrades with the hostility of the network:
+
+| Network tier | Path used |
+|---|---|
+| Free / uncensored | Direct gRPC/QUIC; HTTP/2 fallback. |
+| DPI blacklist (throttle / fingerprint direct TLS) | Escalate to veil-front (honest-front TLS to a cover application). |
+| National **allowlist** (only permitted destinations reachable) | Not crossable by obfuscation alone — this is an explicit non-goal of the transport tier. |
+| Blackout (no connectivity) | Out of scope for the server-routed transport; an offline-mesh foundation is a separate design track. |
+
+This is deliberately honest: obfuscation buys reachability against
+*classification*, not against an adversary who drops everything except an
+allowlist. See [Architecture Overview](./architecture-overview.md) for the
+tiered model. VEIL also is **not** a metadata-hiding layer on its own — it
+helps a connection blend in, but a network observer who already sees the
+connection can still infer timing and volume; sealed sender
+([Chapter 8](./08-metadata-privacy.md)) and padding ([§5.7](./05-message-encryption.md))
+are the metadata mechanisms, not VEIL.
+
 ## 6.6 Transport guarantees and non-guarantees
 
 ### What the transport layer guarantees
@@ -211,10 +238,10 @@ purpose is defeated.
 
 | Exposure | Mitigation status |
 |---|---|
-| IP visibility to the relay operator | Inherent; mitigated only by trusting the operator or routing through Tor. |
-| Server sees per-connection metadata (timestamps, peer IPs) | Inherent; minimise server-side logging. |
-| Active DPI can correlate obfs4 timing patterns | True; veil-front is the in-progress fix. |
-| Sender-id visible to the server on the non-sealed path | Sealed sender is implemented and removes `sender_id` on the sealed path; making sealed the enforced default (removing the non-sealed fallback) is in progress. |
+| IP visibility to the relay operator | Inherent — a relay terminates your connection and sees its source address. Server-side, only a salted hash is retained ([Ch. 8 §8.6](./08-metadata-privacy.md#86-connection-layer-metadata-ip-minimisation)); to keep the address off the path, route through VEIL, a VPN, or Tor. |
+| Server sees per-connection metadata (timestamps, session durations) | Inherent to a client–server design; raw client IPs are **not** persisted (salted hash only). |
+| Active DPI in a hostile region | **veil-front** (honest-front TLS) is the production answer; the retired obfs4/WebTunnel backends were cut by active DPI. Even veil-front does not cross a national **allowlist** (where only explicitly permitted destinations are reachable) — see [Architecture Overview](./architecture-overview.md). |
+| Sender identity to the server | Removed on all user traffic — sealed sender is **on by default** ([Ch. 8](./08-metadata-privacy.md)); the identified path is fail-closed, not a silent downgrade. |
 
 ## 6.7 Configuration constants summary
 

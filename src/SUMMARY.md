@@ -12,6 +12,10 @@
 - [Message Encryption (Double Ratchet)](./05-message-encryption.md)
 - [Transport Layer](./06-transport.md)
 - [Implementation Status](./07-implementation-status.md)
+- [Metadata Privacy & Sealed Sender](./08-metadata-privacy.md)
+- [Anti-Abuse: Privacy Pass Tokens](./09-privacy-pass.md)
+- [Voice and Video Calls](./10-calls.md)
+- [Account Recovery](./11-account-recovery.md)
 
 ---
 

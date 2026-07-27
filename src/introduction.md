@@ -65,7 +65,7 @@ public reference implementation
 | iOS / macOS client | Production-quality code, distributed via [TestFlight beta](https://testflight.apple.com/join/NH3WssFh). No public App Store release yet. |
 | Android client | Phase 0 — Rust core builds, Kotlin wrapper not yet written. |
 | Federation (server-to-server) | **Implemented** — inbound + outbound sealed delivery, Ed25519-signed. Multi-node interoperability test outstanding. |
-| Sealed sender | **Implemented** — the sealed path leaves no `sender_id` at rest. Making it the enforced default is in progress. |
+| Sealed sender | **Implemented and on by default** — all outgoing user traffic (messages, receipts, call signalling, session-control handshake) is sealed and leaves no `sender_id` at rest; identified-downgrade paths are fail-closed. Privacy Pass token *enforcement* runs in `warn` mode (not `enforce`). |
 | MLS group chat | Implemented in `construct-core` but not yet documented at protocol-spec level. To be added in a future revision. |
 | QUIC / HTTP-3 transport | **In production** — plain QUIC (`construct-transport`), always-on with an HTTP/2 fallback. |
 | VEIL veil-front (honest-front transport) | **In production** — the primary obfuscation transport for censored networks. |

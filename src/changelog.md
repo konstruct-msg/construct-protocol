@@ -116,3 +116,57 @@ copied:
 
   Federation and sealed sender, listed as v0.2 gaps under v0.1.1, are now
   implemented.
+- **Accuracy pass (2026-07-27) — code-verified corrections.** Fixed
+  claims that had drifted from the reference implementation:
+  - **Sealed sender / threat model** — resolved a contradiction where
+    [Chapter 1](./01-threat-model.md) still said sealed sender was "not yet
+    deployed" while [Chapter 7](./07-implementation-status.md) said
+    "implemented". Sealed sender is **on by default**; the server-adversary
+    section now states the server cannot read `sender_id` for sealed
+    traffic, lists the true residual metadata, and cites the masking code
+    (`messaging-service/src/envelope.rs:38`, `StealthPolicy.swift:42`,
+    `SessionCoordinator.swift` / `MessagingServiceClient.swift`).
+  - **Session-control channel** — documented that `session_ready` / ping /
+    `SESSION_RESET_INIT` / `END_SESSION` are now sealed (fail-closed).
+  - **Client IP minimisation** — new status entry: the server stores no raw
+    IP, only a salted hash (`construct-utils/src/lib.rs:92`).
+  - **Privacy Pass enforcement** — clarified it runs in `warn`, not
+    `enforce` (deferred past 1.0).
+  - **Keychain accessibility** — corrected
+    `WhenUnlockedThisDeviceOnly` → `AfterFirstUnlockThisDeviceOnly` for
+    crypto/session state (`KeychainManager.swift:21`).
+  - **Media AEAD** — documented AES-256-GCM (per-file key, delivered E2E)
+    for attachments, distinct from the Double Ratchet's ChaCha20-Poly1305
+    (`MediaUploadService.swift:83`).
+- **New [Metadata Privacy & Sealed Sender](./08-metadata-privacy.md)
+  chapter** — the sealed-envelope wire structures (`SealedSenderEnvelope`,
+  `SealedInner`, `SenderCertificate` from `core/envelope.proto`), what each
+  server role sees vs. cannot, recipient-side sender verification (KT /
+  signature vouching, unvouched-but-delivered), the always-on fail-closed
+  invariant and sealed/excluded scope, Privacy Pass anti-abuse (`warn`
+  status, verifiable-VOPRF in progress), IP minimisation, and an honest
+  residual-metadata table. All claims code-cited.
+- **New [Anti-Abuse: Privacy Pass Tokens](./09-privacy-pass.md) chapter** —
+  the anonymous-token VOPRF over Ristretto255 (blind → evaluate → unblind →
+  redeem, `verify_token`), age-tiered issuance caps, redemption + double-spend
+  + the `off`/`warn`/`enforce` policy switch (production is `warn`), and the
+  verifiable-issuance **batched Chaum–Pedersen DLEQ** (full transcript,
+  malicious-issuer key-tagging defence, client key-pinning, KAT). Honest
+  claim boundary: honest-but-curious today, malicious once `enforce` relies
+  on the DLEQ. All claims code-cited.
+- **Chapter 6 (Transport) deepened + corrected.** Fixed stale
+  non-guarantee rows (sealed sender is on-by-default; obfs4 is retired, not
+  an "in-progress fix"; raw IPs not persisted). New §6.5.3 — the
+  direct-first `.auto` connection ladder and graceful degradation across
+  censorship tiers, with the honest limit that obfuscation does not cross a
+  national allowlist and VEIL is not itself a metadata-hiding layer.
+- **New [Voice and Video Calls](./10-calls.md) chapter** — call signalling
+  (SDP/ICE) rides the E2EE message path (`content_type = 12`, sealed);
+  media is WebRTC DTLS-SRTP keyed via that E2EE signalling, so a 1:1 call is
+  end-to-end encrypted (no SFrame needed); audio shipped, video disabled;
+  honest connectivity-metadata table (ICE address exchange, TURN).
+- **New [Account Recovery](./11-account-recovery.md) chapter** — BIP39
+  12-word account re-access (Ed25519 recovery keypair, server stores only
+  the public key; restores account, not history) and SLIP-39 `t`-of-`n`
+  social recovery of the identity vault (Shamir over GF(2⁸), 28-word
+  mnemonics). No server-side key escrow. All claims code-cited.
