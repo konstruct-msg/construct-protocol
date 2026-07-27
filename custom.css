@@ -1,3 +1,11 @@
+/* Reduce the whole document's type by ~1 point (16px -> 15px base).
+ * mdBook sizes almost everything in rem against :root (default 62.5% = 10px),
+ * so scaling :root down by 15/16 shrinks headings, body text, inline code,
+ * tables, and the chrome uniformly. Loaded after the theme, so this wins. */
+:root {
+    font-size: 58.6%;   /* 62.5% * 15/16 -> 1rem = 9.375px, body 1.6rem = 15px */
+}
+
 /* Konstruct Protocol Specification — table readability overrides.
  *
  * The default mdBook theme distributes table columns evenly and lets inline
