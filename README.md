@@ -66,3 +66,9 @@ corrections that don't change implementer obligations.
   the disclosure page): [CC BY 4.0](LICENSE).
 - **Code snippets** quoted from the reference implementation retain
   their original [MIT license](https://github.com/konstruct-msg/construct-core/blob/main/LICENSE).
+
+## Trademark
+
+**Konstruct™** / **Конструкт™** and the logo are trademarks of Maxim Eliseyev. The open-source
+license on this code does **not** grant trademark rights — see [TRADEMARK.md](TRADEMARK.md).
+Forks that distribute a modified version must rebrand.
