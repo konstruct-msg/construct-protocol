@@ -16,6 +16,8 @@
 - [Anti-Abuse: Privacy Pass Tokens](./09-privacy-pass.md)
 - [Voice and Video Calls](./10-calls.md)
 - [Account Recovery](./11-account-recovery.md)
+- [Group Messaging (MLS)](./12-group-messaging.md)
+- [Key Transparency](./13-key-transparency.md)
 
 ---
 

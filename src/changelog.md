@@ -170,3 +170,12 @@ copied:
   the public key; restores account, not history) and SLIP-39 `t`-of-`n`
   social recovery of the identity vault (Shamir over GF(2⁸), 28-word
   mnemonics). No server-side key escrow. All claims code-cited.
+- **New [Group Messaging (MLS)](./12-group-messaging.md) chapter
+  (designed / partial)** — the MLS group engine (OpenMLS, ciphersuite
+  `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`, epoch/Commit/Welcome
+  model, per-device CFE-persisted store). Clearly marked: core implemented,
+  no shipping surface, not yet a normative interop spec.
+- **New [Key Transparency](./13-key-transparency.md) chapter (designed /
+  client-ready)** — RFC 6962 append-only key log, Signed Tree Head,
+  inclusion + consistency proofs; the client verifier is implemented and
+  tested, the server log is not yet deployed. Honest boundary stated.
