@@ -1,0 +1,35 @@
+/* Konstruct Protocol Specification — table readability overrides.
+ *
+ * The default mdBook theme distributes table columns evenly and lets inline
+ * <code> wrap on hyphens/spaces, so short tokens like [0xFF; 32] or
+ * b"Construct-X3DH-RootKey-v1" break mid-token onto a second line even when
+ * there is room. These rules size columns to their content, keep code tokens
+ * on one line, and let a genuinely wide table scroll horizontally instead of
+ * squeezing every column. */
+
+.content table {
+    table-layout: auto;      /* size columns to content, not evenly */
+    display: block;          /* allows horizontal scroll for wide tables */
+    width: fit-content;
+    max-width: 100%;
+    overflow-x: auto;
+    margin: 1rem 0;          /* left-aligned, natural for a spec */
+}
+
+/* Don't break inline-code tokens across lines inside table cells. */
+.content table td code,
+.content table th code {
+    white-space: nowrap;
+}
+
+/* Recover horizontal room the default 20px side padding was spending. */
+.content table td,
+.content table th {
+    padding: 6px 12px;
+}
+
+/* Prose in the first column may still wrap; that is intended. Only code is
+ * pinned. Long free-text cells keep normal wrapping. */
+.content table td {
+    white-space: normal;
+}

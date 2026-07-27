@@ -17,6 +17,7 @@ default-theme = "navy"
 preferred-dark-theme = "navy"
 no-section-label = false
 copy-fonts = true
+additional-css = ["custom.css"]
 
 [output.html.print]
 enable = true
