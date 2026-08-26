@@ -36,7 +36,7 @@ a global observer:
 | Provided | Not provided (deliberately out of scope) |
 |---|---|
 | Identity is a **public key** — registration is passwordless, with no phone number, email, or mandatory username. There is no personal datum to link an account to a real person, even under full server seizure. | **Network-layer unlinkability** — who-talks-to-whom against an adversary who can watch both legs of a relay or correlate timing. That is a mixnet's job; a single relay hop hides the user's IP, not the linkage. |
-| Sealed sender removes the sender identity, and the server-side social graph, from the delivery path. | |
+| Sealed sender removes sender identity from the delivery path for sealed traffic. | It does not erase pre-existing server-side contact records or hide the recipient from the delivery node. |
 
 A mixnet (Sphinx packets, per-hop cover traffic) would add network-layer
 unlinkability at a large cost to usability and — being enumerable — to
@@ -64,7 +64,7 @@ they are composed, not merged.
 
 | Layer | Role | Where it lives | Status |
 |---|---|---|---|
-| **Transport** | Carry bytes; obfuscate them where a censor inspects. Two stacks — QUIC/H3 for speed everywhere, veil-front HTTPS for censored networks — selected by one client-side router. | `construct-transport`, `construct-veil` | Both stacks implemented; plain QUIC and veil-front in production use. |
+| **Transport** | Carry bytes; obfuscate them where a censor inspects. Two stacks — engine-QUIC/H3 for speed everywhere, veil-front HTTPS for censored networks — selected by one client-side router. | `construct-engine`, `construct-veil`, iOS `TransportRouter` | Both stacks implemented; plain QUIC and veil-front in production use. |
 | **EntryDirectory** | Discover a live entry point the censor has not blocked, and rotate off blocked ones without user action. | client + backend (design) | Designed; not yet implemented. |
 | **RouteLayer** | One proxy hop hiding the user IP from the home server (IP-hiding, not unlinkability). | veil-front relay | The single-hop model is the accepted design; deeper anonymity (mixnet) is explicitly out of scope. |
 | **Overlay** | Address an account by a location-independent identifier so it stays reachable after it moves. | `construct-core`, backend | Identity key + `route_id` present; dual-addressing and DHT discovery planned. |
@@ -131,9 +131,9 @@ Consistent with [Transport §6.6](./06-transport.md), stated for the whole syste
 
 **Provided:** content confidentiality and integrity (E2EE, always on); no link
 between an account and a real-world person; sealed sender removing sender
-identity and the at-rest social graph from delivery; the user's IP hidden from
-the home server; the home server's IP hidden from the censor; and continued
-operation as the network degrades — including, by design, with no network.
+identity from sealed delivery requests; the user's IP hidden from the home
+server; the home server's IP hidden from the censor; and continued operation as
+the network degrades — including, by design, with no network.
 
 **Not provided:** unlinkability of who-talks-to-whom against an adversary who
 observes both ends or correlates timing; recipient identity at the delivering

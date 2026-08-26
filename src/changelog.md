@@ -12,7 +12,7 @@ The Konstruct Protocol Specification follows
 
 ## v0.1.0 — *unreleased*
 
-Initial public draft. All seven content chapters and the introduction
+Initial public draft. The core protocol chapters and the introduction
 are present at full depth: RFC 2119 normative language, byte-level
 wire layouts, mathematical handshake notation (DH₁..DH₄, INITIATOR /
 RESPONDER role separation), and verified-against-code parameter values.
@@ -40,8 +40,7 @@ RESPONDER role separation), and verified-against-code parameter values.
   gRPC service surface, VEIL anti-censorship tier.
 - [Implementation Status](./07-implementation-status.md) — honest
   component matrix (what's implemented, what's stubbed, what's open
-  security issue), platform support matrix, open issue tracker
-  (`BS-3`, `BS-6`, `SEC-005`, `SEC-006`, `SEC-009`).
+  security issue), platform support matrix, and open issue tracker.
 - [Appendix A — Error Registry](./appendix-a-errors.md) — every error
   variant a conforming client can observe, organised by surface
   (FFI / CFE / WirePayload / padding / internal / MLS / VEIL / gRPC).
@@ -111,8 +110,8 @@ copied:
   - **VEIL transport** — **veil-front** is now the production obfuscation
     transport; **obfs4 / WebTunnel** are **retired** (were "deployed" /
     "proof-of-concept").
-  - **QUIC / HTTP-3** (`construct-transport`) — recorded as a production
-    transport with HTTP/2 fallback; not yet normatively specified.
+  - **QUIC / HTTP-3** — recorded as the production engine-QUIC direct path
+    with HTTP/2 fallback; not yet normatively specified.
 
   Federation and sealed sender, listed as v0.2 gaps under v0.1.1, are now
   implemented.
@@ -161,10 +160,11 @@ copied:
   censorship tiers, with the honest limit that obfuscation does not cross a
   national allowlist and VEIL is not itself a metadata-hiding layer.
 - **New [Voice and Video Calls](./10-calls.md) chapter** — call signalling
-  (SDP/ICE) rides the E2EE message path (`content_type = 12`, sealed);
-  media is WebRTC DTLS-SRTP keyed via that E2EE signalling, so a 1:1 call is
-  end-to-end encrypted (no SFrame needed); audio shipped, video disabled;
-  honest connectivity-metadata table (ICE address exchange, TURN).
+  (SDP/ICE) rides the E2EE message path and is sealed; the real call type
+  lives inside the encrypted KNST frame for ordinary sends. Media is WebRTC
+  DTLS-SRTP keyed via that E2EE signalling, so a 1:1 call is end-to-end
+  encrypted (no SFrame needed); audio shipped, video disabled; honest
+  connectivity-metadata table (ICE address exchange, TURN).
 - **New [Account Recovery](./11-account-recovery.md) chapter** — BIP39
   12-word account re-access (Ed25519 recovery keypair, server stores only
   the public key; restores account, not history) and SLIP-39 `t`-of-`n`
@@ -175,7 +175,42 @@ copied:
   `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`, epoch/Commit/Welcome
   model, per-device CFE-persisted store). Clearly marked: core implemented,
   no shipping surface, not yet a normative interop spec.
-- **New [Key Transparency](./13-key-transparency.md) chapter (designed /
-  client-ready)** — RFC 6962 append-only key log, Signed Tree Head,
-  inclusion + consistency proofs; the client verifier is implemented and
-  tested, the server log is not yet deployed. Honest boundary stated.
+- **New [Key Transparency](./13-key-transparency.md) chapter** — RFC
+  6962-style append-only key log, Signed Tree Head, inclusion proofs,
+  and the honest deployment boundary: per-bundle inclusion proofs are
+  live, while public monitoring, consistency checking, and STH gossip
+  remain open.
+- **Key Transparency status corrected (2026-07-27).** A code audit found the
+  earlier "server not yet publishing the log" claim was **wrong**: the server
+  maintains an append-only Merkle log and returns a Signed Tree Head +
+  inclusion proof inline with every pre-key bundle (`key-service/src/kt.rs`,
+  migrations 044/054), and the client verifies inclusion + STH signature on
+  receipt (`KeyTransparencyVerifier`). [Chapter 13](./13-key-transparency.md)
+  and the [Implementation Status](./07-implementation-status.md) KT row were
+  rewritten to state what is live and to name the real remaining gap — no
+  public monitor endpoint, no in-practice consistency checking, no STH
+  gossip/auditor — i.e. the current STH catches a self-contradicting server
+  but not one that equivocates consistently across victims (split view).
+- **Protocol-code audit (2026-08-26).** Reconciled the public spec with
+  `construct-core`, `construct-server`, and the iOS client on the protocol
+  surfaces implementers need:
+  - WirePayload and CFE byte layouts corrected to little-endian where the
+    reference encodes little-endian; CFE CRC corrected to payload-only.
+  - Suite 3 (`PQ_RATCHET`) documented as a separate, capability-negotiated
+    sparse continuous ML-KEM-768 ratchet, with its WirePayload PQ section
+    and message-key HKDF.
+  - Double Ratchet KDF labels corrected (`Double-Ratchet-*`), AD v3 length
+    corrected to 125 B for UUID sessions (129 B with Suite 3 epoch), and AD
+    v2 fallback corrected to the same field layout with a different version
+    byte.
+  - Prekey signatures corrected from `public_key || epoch` to
+    `b"KonstruktX3DH-v1" || [0x00, suite_id] || public_key`; SPK clean
+    freshness corrected from 10 days to 30 days with explicit stale-tolerant
+    degraded init.
+  - Hybrid Ed25519 + ML-DSA-65 signatures updated from planned to
+    implemented/capability-gated, including the hybrid identity
+    cross-signature and 3373-byte signature format.
+  - Sealed sender metadata updated: normal sealed traffic no longer exposes
+    real `content_type`; `SealedInner.content_type`, `priority`, and `ttl`
+    are deprecated server-visible compatibility fields, with only structural
+    exceptions 21 and 24 allowed before decryption.

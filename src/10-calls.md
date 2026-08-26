@@ -7,8 +7,9 @@ states honestly what the connectivity layer still exposes.
 
 Status: **audio 1:1 is implemented**; video is wired through the
 call-entry UI but the media layer is not yet enabled
-(`construct-ios` `Services/Calls/CallsFeature.swift`, `isVideoEnabled =
-false`). Group calls / SFU are out of scope ([Chapter 7](./07-implementation-status.md)).
+(`construct-ios` `Services/Calls/CallsFeature.swift:14`,
+`isVideoEnabled = false`). Group calls / SFU are out of scope
+([Chapter 7](./07-implementation-status.md)).
 
 ## 10.1 Two planes: signalling and media
 
@@ -28,11 +29,15 @@ the two devices too.
 SDP offers/answers and ICE candidates are not sent to the server in the
 clear. They are encrypted with the peer's Double Ratchet session
 ([Chapter 5](./05-message-encryption.md)) as call-signal messages
-(`content_type = 12`) and are **sealed** like any other user traffic
+and are **sealed** like any other in-scope user traffic
 ([Chapter 8](./08-metadata-privacy.md)) — so the server can read neither
 the SDP (which carries the DTLS fingerprints and ICE ufrag/pwd) nor the
-sender identity. The client-side framing that carries the suite id and PQ
-ratchet fields for a call signal is `CallSignalCrypto` (`ENC:v3` frame);
+sender identity. On the ordinary message path, the real call content type
+(`12`) rides inside the encrypted KNST frame; `SealedInner.content_type`
+and the outer envelope remain `UNSPECIFIED`
+(`construct-ios` `Services/Calls/CallManager.swift:1295`-`:1300`).
+The client-side framing that carries the suite id and PQ ratchet fields
+for a call signal is `CallSignalCrypto` (`Services/Calls/CallSignalCrypto.swift:87`-`:104`);
 orchestration is in `Services/Calls/CallManager.swift`.
 
 Two delivery routes exist, both E2EE:

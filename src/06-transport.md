@@ -37,10 +37,16 @@ Keywords MUST, MUST NOT, SHOULD, MAY are per
 Layers below Konstruct (TLS 1.3, HTTP/2, TCP, QUIC) are standard and
 out of scope here.
 
-A QUIC/HTTP-3 transport (`construct-transport`) is also in production as
-an alternative to the HTTP/2 path, selected by the client-side transport
-router with an HTTP/2 fallback; it is not yet specified normatively in
-this chapter (planned for a future revision).
+A QUIC/HTTP-3 direct path is also in production as an alternative to
+the HTTP/2 path, selected by the client-side transport router with an
+HTTP/2 fallback. The current client calls it **engine-QUIC** and gates
+it through `FeatureFlags.engineQuicExperimental`, which defaults on;
+release builds use plain QUIC and force Salamander-style datagram
+obfuscation off (`construct-ios` `Utilities/Constants.swift:414`-`:456`,
+`Networking/gRPC/GRPCChannelManager.swift:474`-`:535`). The H3 path is
+implemented in `construct-engine/src/transport/mod.rs:50`-`:113` and
+`src/transport/connection.rs:60`-`:107`; it is not yet specified
+normatively in this chapter (planned for a future revision).
 
 ## 6.2 Wire format (WirePayload)
 
@@ -51,18 +57,22 @@ Restated for completeness:
 
 | Field | Type | Size | Description |
 |---|---|---|---|
-| message_number | u32 BE | 4 B | Double Ratchet sending counter `Ns` |
+| message_number | u32 LE | 4 B | Double Ratchet sending counter `Ns` |
 | dh_public_key | bytes | 32 B | Current sending DH public (`DHs.pub`) |
-| otpk_id | u32 BE | 4 B | OPK id consumed by the X3DH initiator; `0` if N/A |
-| kyber_otpk_id | u32 BE | 4 B | Kyber-OPK id consumed; `0` if N/A |
-| kem_len | u16 BE | 2 B | Length of the KEM ciphertext that follows; `0` in Suite 1 |
-| prev_chain_length | u32 BE | 4 B | Previous-chain length `PN` |
-| suite_id | u16 BE | 2 B | `0x0001` Suite 1 or `0x0002` Suite 2 |
-| kem_ct | bytes | `kem_len` B | ML-KEM-768 ciphertext (Suite 2 only, 1088 B) |
+| otpk_id | u32 LE | 4 B | OPK id consumed by the X3DH initiator; `0` if N/A |
+| kyber_otpk_id | u32 LE | 4 B | ML-KEM-768 OPK id consumed; `0` if N/A |
+| kem_len | u16 LE | 2 B | Length of the KEM ciphertext that follows; `0` when absent |
+| prev_chain_length | u32 LE | 4 B | Previous-chain length `PN` |
+| suite_id | u16 LE | 2 B | `0x0001` Suite 1, `0x0002` Suite 2, or `0x0003` Suite 3 |
+| kem_ct | bytes | `kem_len` B | ML-KEM-768 ciphertext for PQXDH first messages (1088 B when present) |
+| suite3_pq_section | bytes | variable | Present only when `suite_id = 0x0003`; see §5.3 |
 | aead_frame | bytes | variable | `nonce(12) || ct(N) || tag(16)` |
 
 Total fixed header size: **52 bytes**
-(`construct-core/src/wire_payload.rs:30`).
+(`construct-core/src/wire_payload.rs:22`-`:36`). All numeric fields
+in the fixed WirePayload header and Suite 3 PQ section are
+little-endian (`construct-core/src/wire_payload.rs:106`-`:129`,
+`:220`-`:264`).
 
 A WirePayload is the unit of work the Double Ratchet produces and
 consumes. It MUST NOT carry plaintext routing fields outside of
@@ -84,16 +94,19 @@ CFE envelope (16-byte header + payload) ::=
     magic        : [u8; 2]  = [0x43, 0x46]    -- "CF"
     version      : u8       = 0x01
     msg_type     : u8                          -- CfeMessageType enum tag
-    payload_len  : u32 BE                      -- length of the MessagePack body
     flags        : u8                          -- reserved, MUST be 0
     reserved     : [u8; 3]  = [0x00; 3]
-    crc32        : u32 BE                      -- CRC-32 over (magic..reserved || payload)
+    payload_len  : u32 LE                      -- length of the MessagePack body
+    crc32        : u32 LE                      -- CRC-32 over payload only
     payload      : [u8; payload_len]           -- MessagePack body
 ```
 
 Header constants are defined in `construct-core/src/cfe/envelope.rs`:
 `CFE_MAGIC = [0x43, 0x46]`, `CFE_VERSION = 0x01`,
-`CFE_HEADER_LEN = 16`.
+`CFE_HEADER_LEN = 16`, `SUPPORTED_FLAGS_MASK = 0x00`, and
+`MAX_PAYLOAD_LEN = 256 * 1024` (`:8`-`:25`). The encoder writes the
+header in the order above and serialises the payload with
+`rmp_serde::to_vec_named` (`:48`-`:65`).
 
 ### 6.3.2 Required validations
 
@@ -101,11 +114,17 @@ A receiver of a CFE envelope MUST:
 
 1. Verify the magic bytes match exactly. Mismatch → reject.
 2. Verify the version is supported (currently only `0x01`).
-3. Verify `payload_len` does not exceed the implementation-defined
-   maximum (reference: 256 KiB).
-4. Verify `crc32` matches recomputed CRC over the header (with the
-   crc32 field zeroed) plus the payload.
-5. Decode the payload as MessagePack only if all checks above pass.
+3. Verify the `msg_type` byte maps to a known `CfeMessageType`.
+4. Verify `flags == 0`; flag constants exist in code, but v1 supports
+   no flags (`SUPPORTED_FLAGS_MASK = 0x00`).
+5. Verify the three reserved bytes are zero.
+6. Decode `payload_len` as little-endian and reject values above the
+   implementation cap (reference: 256 KiB).
+7. Verify the buffer contains exactly enough bytes for the declared
+   payload.
+8. Verify `crc32` matches recomputed CRC-32 over the payload bytes
+   only (`construct-core/src/cfe/envelope.rs:135`-`:147`).
+9. Decode the payload as MessagePack only if all checks above pass.
 
 These checks are what make CFE strictly safer than the JSON
 predecessor: a malformed envelope is rejected before any
@@ -135,6 +154,7 @@ ones relevant to a client implementer are:
 | UserService | (other) | unary, JWT required |
 | DeviceService | `*` | unary, no JWT required |
 | MessagingService | `MessageStream` | bidirectional stream, JWT required |
+| MessagingService | `SendSealedMessage` | unary sealed send, deliberately no JWT required |
 | SignalingService | `Signal` | bidirectional stream, JWT required |
 | KeyService | prekey upload / fetch | unary, JWT required |
 
@@ -146,6 +166,20 @@ same.
 `MessageStream` carries WirePayload frames (§6.2) as bytes in the
 request/response stream. The server treats the byte field as opaque
 and routes by metadata fields outside the WirePayload.
+
+`SendSealedMessage` carries a `SealedSenderEnvelope` and deliberately
+does not extract an authenticated user id; anti-abuse is enforced by
+per-IP rate limiting, Privacy Pass token redemption, and delivery-tag
+replay checks (`construct-server/messaging-service/src/grpc.rs:701`-`:750`,
+`messaging-service/src/envelope.rs:139`-`:270`). This is the transport
+entry point that removes the sender identity from the server-visible
+request for sealed sender ([Chapter 8](./08-metadata-privacy.md)).
+
+For key fetches, new clients MUST set
+`consume_one_time_prekey` explicitly. Legacy absence is interpreted as
+"consume" for wire compatibility, while non-session lookups should set
+it to false to avoid draining OPK pools
+(`construct-server/shared/proto/services/key_service.proto:80`-`:103`).
 
 ## 6.5 VEIL — anti-censorship transport tier
 
@@ -250,8 +284,9 @@ are the metadata mechanisms, not VEIL.
 | CFE magic | `[0x43, 0x46]` | `cfe/envelope.rs:8` |
 | CFE version | `0x01` | `cfe/envelope.rs:9` |
 | CFE header length | 16 bytes | `cfe/envelope.rs:10` |
-| CFE max payload | 256 KiB | reference implementation cap |
-| WirePayload header length | 52 bytes (fixed) | `wire_payload.rs:30` |
+| CFE supported flags | `0x00` mask; all flags rejected | `cfe/envelope.rs:17`, `:110`-`:112` |
+| CFE max payload | 256 KiB | `cfe/envelope.rs:19`-`:25`, `:119`-`:124` |
+| WirePayload header length | 52 bytes (fixed) | `wire_payload.rs:22`-`:36` |
 | Padding modulus | 255 | `traffic_protection/padding.rs` |
 | VEIL probe timeout | implementation-defined (reference: a few seconds per backend) | `construct-veil/src/veil/coordinator.rs` |
 

@@ -27,6 +27,9 @@ material MUST be zeroised immediately after use.
 | Nr | `u32` | 0 | Messages received in the current receiving chain |
 | PN | `u32` | 0 | Number of messages in the previous sending chain |
 | MKSKIPPED | `Map<(DHr, n), [u8;32]>` | `{}` | Per-message keys for out-of-order delivery |
+| `current_pq_epoch` | `u32` | 0 | Suite 3 only: completed PQ epoch mixed into outgoing message keys |
+| `pq_epoch_secrets` | bounded list | `{}` | Suite 3 only: completed ML-KEM-768 epoch secrets retained for out-of-order messages |
+| pending PQ exchange / ciphertext | optional | none | Suite 3 only: in-flight sparse PQ ratchet material |
 
 The reference implementation packs these into
 `SessionState` in `construct-core/src/crypto/messaging/double_ratchet/`.
@@ -38,18 +41,20 @@ Two distinct HKDF-SHA-256 instances are used:
 ```
 KDF_RK(rk, dh_out) -> (rk', ck')
     = HKDF-SHA-256(salt = rk, IKM = dh_out,
-                   info = b"Construct-DoubleRatchet-RootKey-v1", L = 64)
-    -> (rk'[0..32], ck'[32..64])
+                   info = b"Double-Ratchet-Root-Key-Expansion", L = 64)
+    -> (output[0..32], output[32..64])
 
-KDF_CK(ck) -> (ck', mk)
-    where
-      mk  = HMAC-SHA-256(key = ck, data = 0x01)[0..32]
-      ck' = HMAC-SHA-256(key = ck, data = 0x02)[0..32]
+KDF_CK(ck) -> (mk, ck')
+    = HKDF-SHA-256(salt = ck, IKM = empty,
+                   info = b"Double-Ratchet-Chain-Key-Expansion", L = 64)
+    -> (output[0..32], output[32..64])
 ```
 
 `KDF_RK` mixes a new DH output into the root key and emits a fresh
 chain key. `KDF_CK` advances a chain key one step and emits a single
-message key.
+message key. The initial X3DH root key is first normalised for the
+Double Ratchet with `HKDF(salt = [0xFE; 32], IKM = x3dh_root,
+info = b"InitialRootKey", L = 32)`.
 
 ## 5.3 Wire format (WirePayload header)
 
@@ -57,24 +62,50 @@ Every encrypted message on the wire is preceded by a fixed-layout
 binary header followed by AEAD-protected ciphertext.
 
 ```
-WirePayload (header, 52 bytes fixed + variable Kyber fields) ::=
-    message_number      : u32  big-endian            (4 B)
+WirePayload (header, 52 bytes fixed + variable extension fields) ::=
+    message_number      : u32  little-endian         (4 B)
     dh_public_key       : [u8; 32]                   (32 B)
-    otpk_id             : u32  big-endian            (4 B)  -- 0 if N/A
-    kyber_otpk_id       : u32  big-endian            (4 B)  -- 0 if N/A
-    kem_len             : u16  big-endian            (2 B)
-    prev_chain_length   : u32  big-endian            (4 B)
-    suite_id            : u16  big-endian            (2 B)
-    -- followed by kem_ct (kem_len bytes; absent in Suite 1)
+    otpk_id             : u32  little-endian         (4 B)  -- 0 if N/A
+    kyber_otpk_id       : u32  little-endian         (4 B)  -- 0 if N/A
+    kem_len             : u16  little-endian         (2 B)
+    prev_chain_length   : u32  little-endian         (4 B)
+    suite_id            : u16  little-endian         (2 B)
+    -- followed by kem_ct (kem_len bytes; absent when kem_len = 0)
+    -- followed by Suite 3 PQ section when suite_id = 0x0003
     -- followed by AEAD framing (nonce || ciphertext || tag)
 ```
 
 `HEADER_SIZE = 52` bytes is fixed by the reference (sum of the field
-sizes above, `construct-core/src/wire_payload.rs:30`). The variable
-KEM ciphertext follows the header when `suite_id = 0x0002` and
-`kem_len > 0`. The pack/unpack routines are
-`wire_payload::pack` / `wire_payload::unpack`; deviating from the
-ordering or endianness produces non-interoperable frames.
+sizes above, `construct-core/src/wire_payload.rs:22`-`:36`). The
+variable KEM ciphertext follows the header when `kem_len > 0`; for
+Suite 2 first messages the reference value is 1088 bytes. The
+pack/unpack routines are `wire_payload::pack` /
+`wire_payload::unpack`; deviating from the ordering or endianness
+produces non-interoperable frames.
+
+Suite 3 adds a PQ section between `kem_ct` and the AEAD frame:
+
+```
+Suite3PqSection ::=
+    pq_message_epoch : u32 little-endian
+    field_type       : u8     -- 0 none, 1 EK proposal, 2 CT completion
+
+field_type = 1:
+    field_epoch      : u32 little-endian
+    ek_len           : u16 little-endian
+    ek               : bytes  -- ML-KEM-768 public key, normally 1184 B
+
+field_type = 2:
+    field_epoch      : u32 little-endian
+    ek_hash          : [u8; 8]
+    ct_len           : u16 little-endian
+    ct               : bytes  -- ML-KEM-768 ciphertext, normally 1088 B
+```
+
+`pq_message_epoch` is always present for Suite 3, even when
+`field_type = 0`. It is always `0` and no PQ section is encoded for
+Suite 1 and Suite 2 frames. Reference layout:
+`construct-core/src/wire_payload.rs:76`-`:129` and `:220`-`:264`.
 
 The AEAD output `(nonce || ciphertext || tag)` uses:
 
@@ -93,16 +124,23 @@ version. The current format is **AD version 3**, defined as:
 ```
 AD_v3 ::=
     ad_version          : u8 = 3                     (1 B)
-    contact_id          : utf-8 bytes (36 chars)     (36 B for UUID)
-    local_user_id       : utf-8 bytes (36 chars)     (36 B for UUID)
-    session_id          : [u8; 32]                   (32 B)
+    sender_user_id      : utf-8 bytes (36 chars)     (36 B for UUID)
+    receiver_user_id    : utf-8 bytes (36 chars)     (36 B for UUID)
+    session_id          : [u8; 16]                   (16 B; decoded from 32 lowercase hex chars)
     dh_public_key       : [u8; 32]                   (32 B)
     message_number      : u32 big-endian             (4 B)
+    pq_message_epoch    : u32 big-endian             (4 B; Suite 3 only)
 ```
 
-Total length for canonical 36-character UUIDs: **141 bytes**. The
-reference constructs this in
-`construct-core/src/crypto/messaging/double_ratchet/internals.rs:223`.
+Total length for canonical 36-character UUIDs: **125 bytes** for
+Suite 1/2, **129 bytes** for Suite 3. The session id is derived as
+`HKDF(salt = x3dh_root, IKM = b"construct-session-id",
+info = b"Construct-SessionID-v2\x00" || min_user_id || 0x00 || max_user_id,
+L = 16)` and stored as hex
+(`construct-core/src/crypto/messaging/double_ratchet/mod.rs:204`-`:227`).
+The reference constructs encryption AD in
+`construct-core/src/crypto/messaging/double_ratchet/messaging.rs:307`-`:332`
+and decryption AD in `internals.rs:533`-`:554`.
 
 Order is normative. Each direction of a session computes its own AD —
 ENCRYPT uses `(local_user_id_sender, contact_id_receiver)`; DECRYPT
@@ -124,22 +162,29 @@ produces an AD length difference and instant AEAD failure.
 
 ### 5.4.1 AD migration (v2 → v3)
 
-The previous version `AD_VERSION_PREV = 2` differs from v3 only in
-that it omits the `session_id` field. A receiver MUST attempt
-decryption first with `AD_VERSION = 3`; if AEAD verification fails,
-the receiver MUST retry once with `AD_VERSION = 2` before treating
-the message as undecryptable. This fallback path is purely for
-in-flight v2 messages during the migration window and SHOULD be
-removed in a future protocol revision (`SEC-006`).
+The previous version `AD_VERSION_PREV = 2` uses the same fields as
+v3, including the 16-byte session id; it differs by the leading
+version byte. A receiver MUST attempt decryption first with
+`AD_VERSION = 3`; if AEAD verification fails, the receiver MUST retry
+once with `AD_VERSION = 2` before treating the message as
+undecryptable. For Suite 3, both attempts include
+`pq_message_epoch` in AD. This fallback path is purely for in-flight
+v2 messages during the migration window and SHOULD be removed in a
+future protocol revision (`SEC-006`).
 
 ## 5.5 Encryption (RatchetEncrypt)
 
 ```
 RatchetEncrypt(state, plaintext, peer_id):
-    1. (CKs', mk) = KDF_CK(state.CKs)
-    2. state.CKs = CKs'
-    3. header = {
-           message_number  = state.Ns,
+    1. padded = pkcs7_pad(plaintext, 255)        -- §5.7
+    2. (mk_dr, CKs') = KDF_CK(state.CKs)
+    3. state.CKs = CKs'
+    4. pq_epoch = state.current_pq_epoch if state.suite_id = 3 else 0
+    5. mk = mix_pq_message_key(mk_dr, pq_epoch)
+    6. message_number = state.Ns
+    7. state.Ns += 1
+    8. header = {
+           message_number  = message_number,
            dh_public_key   = state.DHs.pub,
            prev_chain_length = state.PN,
            suite_id        = state.suite_id,
@@ -147,22 +192,29 @@ RatchetEncrypt(state, plaintext, peer_id):
            otpk_id         = 0,
            kyber_otpk_id   = 0,
        }
-    4. ad = build_ad(AD_VERSION_3, state.local_user_id,
+    9. ad = build_ad(AD_VERSION_3, state.local_user_id,
                      peer_id, state.session_id,
-                     state.DHs.pub, state.Ns)
-    5. padded = pkcs7_pad(plaintext, 255)        -- §5.7
-    6. (nonce, ct, tag) = AEAD-Encrypt(key = mk,
+                     state.DHs.pub, message_number,
+                     pq_epoch if state.suite_id = 3)
+   10. (nonce, ct, tag) = AEAD-Encrypt(key = mk,
                                        plaintext = padded,
                                        associated_data = ad)
-    7. zeroise(mk)
-    8. state.Ns += 1
-    9. return wire_payload::pack(header, kem_ct = None,
-                                 nonce || ct || tag)
+   11. zeroise(mk_dr, mk)
+   12. return wire_payload::pack(header, kem_ct = None,
+                                 sealed_box = nonce || ct || tag,
+                                 pq_message_epoch = pq_epoch,
+                                 pq_ratchet_field = pending Suite 3 field, if any)
 ```
 
 The reference uses `chacha20poly1305 0.10` for AEAD. The `nonce` is a
 fresh 12-byte random per message; it is part of the AEAD output and
 MUST be transmitted alongside the ciphertext.
+
+For Suite 3, `mix_pq_message_key` returns the Double Ratchet message
+key unchanged when `pq_epoch = 0`. For any non-zero epoch it derives
+`HKDF(salt = pq_epoch_secret, IKM = mk_dr,
+info = b"construct-pqr-msg-v1", L = 32)` and rejects the message if
+that epoch secret is unavailable (`construct-core/src/crypto/messaging/double_ratchet/internals.rs:415`-`:440`).
 
 ## 5.6 DH ratchet step
 
@@ -224,24 +276,35 @@ RatchetDecrypt(state, wire_bytes, peer_id):
 
     -- §5.8.3 Message key lookup
     5. SkipChainKeysUntil(state, header.message_number)
-    6. (CKr', mk) = KDF_CK(state.CKr)
+    6. (mk_dr, CKr') = KDF_CK(state.CKr)
     7. state.CKr = CKr'
     8. state.Nr += 1
 
     -- §5.8.4 AEAD decrypt with fallback
-    9. ad = build_ad(AD_VERSION_3, peer_id, state.local_user_id,
+    9. mk = mix_pq_message_key(mk_dr, header.pq_message_epoch)
+   10. ad = build_ad(AD_VERSION_3, peer_id, state.local_user_id,
                      state.session_id, header.dh_public_key,
-                     header.message_number)
-   10. try:
+                     header.message_number,
+                     header.pq_message_epoch if state.suite_id = 3)
+   11. try:
            padded = AEAD-Decrypt(key = mk, ciphertext = framing,
                                  associated_data = ad)
        except AeadVerifyFailed:
            ad_v2 = build_ad(AD_VERSION_PREV, ...)    -- §5.4.1
            padded = AEAD-Decrypt(..., associated_data = ad_v2)
-   11. zeroise(mk)
-   12. plaintext = pkcs7_unpad(padded)
-   13. return plaintext
+   12. commit Suite 3 PQ field only after authenticated decrypt succeeds
+   13. zeroise(mk_dr, mk)
+   14. plaintext = pkcs7_unpad(padded)
+   15. return plaintext
 ```
+
+For Suite 3, a carried EK/CT field is processed only after the carrier
+message has authenticated and decrypted successfully. A well-formed but
+cryptographically unusable EK/CT field is ignored for PQ state and MUST
+NOT roll back already delivered classical plaintext; an invalid wire
+encoding is rejected by `wire_payload::unpack`, and an unknown non-zero
+`pq_message_epoch` is a decrypt error because it would otherwise skip
+the PQ mix.
 
 ### 5.8.1 Mandatory DoS guards
 

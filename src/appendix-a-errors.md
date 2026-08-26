@@ -76,7 +76,7 @@ Defined in `construct-core/src/uniffi_bindings.rs:30`.
 | `FFI-INVALID-CT` | `InvalidCiphertext` | A KEM ciphertext or AEAD frame failed structural validation. | Reject the message. |
 | `FFI-SERIALIZE` | `SerializationFailed` | A MessagePack encode failed for an outbound CFE payload. | Surface as internal error. |
 | `FFI-MSGPACK-DESERIALIZE` | `MessagePackDeserializationFailed` | A MessagePack decode failed on an incoming CFE payload. | Reject the envelope. |
-| `FFI-SPK-STALE` | `PeerSpkStale { age_secs }` | The peer's Signed Pre-Key exceeds `SPK_MAX_AGE_SECS` (10 days). | Wait for the peer to open their app and rotate, or surface to user. Do NOT proceed with X3DH against a stale SPK. |
+| `FFI-SPK-STALE` | `PeerSpkStale { age_secs }` | The peer's Signed Pre-Key exceeds the clean-path `SPK_MAX_AGE_SECS` boundary (30 days in `construct-core/src/crypto/client_api.rs:61`-`:71`). | Trigger a fresh bundle fetch / rotation wake. An implementation may offer an explicit degraded `init_session_allowing_stale` path, but it must still verify signatures and mark the resulting session at-risk. |
 
 `FFI-SPK-STALE` is the only variant with structured data that
 applications MUST react to: it conveys the `age_secs` so that UI can
@@ -97,7 +97,7 @@ before its payload is deserialised.
 | `CFE-LEGACY-JSON` | `LegacyJson` | Buffer begins with `{` or `[` — caller is on a pre-CFE path. |
 | `CFE-UNSUP-VERSION` | `UnsupportedVersion(u8)` | Version byte is not `0x01`. |
 | `CFE-UNKNOWN-TYPE` | `UnknownType(u8)` | `msg_type` byte does not correspond to any known `CfeMessageType` variant. |
-| `CFE-CRC-MISMATCH` | `ChecksumMismatch { stored, computed }` | CRC-32 over `(header[crc=0] || payload)` does not match the stored value. |
+| `CFE-CRC-MISMATCH` | `ChecksumMismatch { stored, computed }` | CRC-32 over the MessagePack payload bytes does not match the stored value. |
 | `CFE-PAYLOAD-TOO-LARGE` | `PayloadTooLarge { max, got }` | `payload_len` exceeds the implementation cap (reference: 256 KiB). |
 | `CFE-TRUNCATED` | `TruncatedPayload { expected, got }` | Buffer ends before `payload_len` bytes can be read. |
 | `CFE-RESERVED-NONZERO` | `InvalidReservedBytes` | The three reserved bytes are not `[0x00, 0x00, 0x00]`. |
@@ -120,12 +120,14 @@ rejection without any attempt to deserialise the payload.
 
 Raised by the WirePayload pack/unpack routines
 ([Chapter 6 §6.2](./06-transport.md#62-wire-format-wirepayload)).
-Defined in `construct-core/src/wire_payload.rs:172`.
+Defined in `construct-core/src/wire_payload.rs:288`-`:299`.
 
 | Tag | Variant | Condition |
 |---|---|---|
 | `WP-INVALID-DH` | `InvalidDhPublicKey(usize)` | The DH public key field is not exactly 32 bytes (X25519 Montgomery point). |
-| `WP-KEM-TOO-LARGE` | `KemTooLarge(usize)` | KEM ciphertext exceeds `u16::MAX` bytes (only Suite 2; reference value is 1088). |
+| `WP-KEM-TOO-LARGE` | `KemTooLarge(usize)` | KEM ciphertext exceeds `u16::MAX` bytes (Suite 2 first-message reference value is 1088). |
+| `WP-PQ-FIELD-TOO-LARGE` | `PqFieldTooLarge(usize)` | Suite 3 PQ ratchet EK/CT field exceeds `u16::MAX` bytes. |
+| `WP-PQ-FIELD-TYPE` | `InvalidPqFieldType(u8)` | Suite 3 PQ section carries a field type other than `0`, `1`, or `2`. |
 | `WP-TOO-SHORT` | `TooShort(usize)` | Buffer is shorter than the 52-byte fixed header. |
 
 A WirePayload that fails to parse MUST be dropped without affecting

@@ -46,8 +46,12 @@ material the client uses to decrypt simply is not on the server.
 
 **Sealed sender is deployed and on by default.** Outgoing user traffic —
 messages, delivery receipts, call signalling, and the session-control
-handshake — is *sealed*: the client omits the `sender_id` from the outer
-envelope and seals a server-issued sender certificate to the recipient's
+handshake — is *sealed*: ordinary sealed sends use the dedicated
+`SendSealedMessage` RPC whose request carries only `sealed_sender`
+bytes plus an optional attempt id; transitional session-control paths
+may still carry `Envelope.sealed_sender`, but the outer sender,
+conversation id, and real content type are omitted. In both paths the
+client seals a server-issued sender certificate to the recipient's
 identity key, so only the recipient can recover who sent a message. A
 compromised server therefore **cannot** read `sender_id` from sealed
 traffic and cannot directly reconstruct the `sender_id → recipient_id`
@@ -56,19 +60,31 @@ edge for a sealed message.
 - Client policy (always-on in release builds): `construct-ios`
   `Services/StealthPolicy.swift:42` (`isEnabled`), `:71`
   (`shouldUseSealedSender`).
-- Envelope masking: `construct-ios`
-  `Networking/gRPC/Services/MessagingServiceClient.swift`
-  (`buildEnvelope` omits `sender`, `conversation_id`, and the real
-  `content_type` when a `SealedInner` is present).
-- Server handling: `messaging-service/src/envelope.rs:38`
-  (`if envelope.is_sealed_sender { … }` — the sender is hidden from the
-  proto).
+- Client transport: `construct-ios`
+  `Networking/gRPC/Services/MessagingServiceClient.swift:203`-`:225`
+  (`sendSealedMessage` uses no outer `Envelope`, sender,
+  conversation id, or content type).
+- Legacy sealed control transport: `construct-ios`
+  `Networking/gRPC/Services/MessagingServiceClient.swift:35`-`:68`,
+  `:269`-`:351`; `construct-server`
+  `messaging-service/src/grpc.rs:333`-`:360`.
+- Sealed-inner construction: `construct-ios`
+  `Security/StealthSenderService.swift:400`-`:415` (ordinary traffic
+  omits `content_type`; only structural sealed-sender exceptions are
+  visible before decrypt).
+- Server handling: `construct-server`
+  `messaging-service/src/grpc.rs:701`-`:750`
+  (`send_sealed_message` deliberately does not extract an authenticated
+  user id) and `messaging-service/src/envelope.rs:140`-`:270`
+  (`dispatch_sealed_sender` routes from `SealedInner` without a sender).
 
 What the server can still see today (single-trusted-server alpha), even
 with sealed sender:
 
-- The **recipient** identifier and the delivery timestamp of each message.
-  (The sender is not in the sealed envelope.)
+- The **recipient** identifier, delivery tag, token fields, payload size,
+  and delivery timestamp of each sealed message. The sender is not in
+  the `SendSealedMessage` request or the plaintext `SealedInner`; it is
+  inside `sender_cert_ciphertext`.
 - The pre-existing **contact graph** — contact relationships are stored to
   route message streams.
 - **Ciphertext size after padding** and traffic timing/volume.

@@ -38,7 +38,7 @@ Concretely:
 
 - Marketing copy (lives at `~/Code/construct-landing/`,
   konstruct.cc).
-- Internal architecture decisions (live in `~/Code/construct-docs/wiki/`).
+- Internal architecture decisions (live in `~/Code/construct-docs/`).
 - Aspirational roadmap content (lives in construct-docs or the
   landing site's roadmap section, not here).
 

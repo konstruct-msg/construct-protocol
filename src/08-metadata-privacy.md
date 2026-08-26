@@ -20,10 +20,21 @@ for that boundary. The honest residual-metadata list is in §8.7 below.
 
 ## 8.2 The sealed envelope
 
-A sealed message replaces the normal `Envelope` `sender` field with a
-`SealedSenderEnvelope`. The wire structures are defined normatively in
+The primary current stealth path for ordinary sealed sends is a
+`SendSealedMessageRequest` containing only a `SealedSenderEnvelope`
+plus an optional attempt id. There is no outer `Envelope`, no `sender`,
+no `conversation_id`, and no server-visible content type on that RPC
+(`construct-server/shared/proto/services/messaging_service.proto:25`-`:30`,
+`:281`-`:289`). A legacy authenticated `Envelope.sealed_sender` path
+exists for transitional session-control traffic; it still masks sender,
+conversation id, and real content type on the outer envelope, then
+enters the same `dispatch_sealed_sender` server path. Unauthenticated
+`SendSealedMessage` is the sender-hiding transport boundary for
+ordinary sealed sends.
+
+The sealed structures are defined normatively in
 `shared/proto/core/envelope.proto` (message `SealedSenderEnvelope`,
-`envelope.proto:359`; `SealedInner`, `envelope.proto:380`).
+`envelope.proto:365`; `SealedInner`, `envelope.proto:390`).
 
 ```
 SealedSenderEnvelope {          // visible to the home/entry server
@@ -38,13 +49,28 @@ SealedInner {                   // read by the destination server
   delivery_tag          : bytes    // random 32 B; server dedups for 24h
   sender_cert_ciphertext: bytes    // SenderCertificate sealed to recipient IK — server MUST NOT decrypt
   encrypted_payload     : bytes    // the Double Ratchet ciphertext (Chapter 5)
-  content_type          : ContentType
-  priority              : MessagePriority
-  ttl                   : uint32
+  content_type          : ContentType       // DEPRECATED; ignored by server
+  priority              : MessagePriority   // DEPRECATED; ignored by server
+  ttl                   : uint32            // DEPRECATED; ignored by server
   token_nonce           : bytes    // Privacy Pass (optional, §8.5)
   token_bytes           : bytes
+  token_spend_id        : bytes    // optional logical-message spend id
 }
 ```
+
+`content_type`, `priority`, and `ttl` remain in `SealedInner` only for
+compatibility. They are server-visible metadata leaks and the server
+MUST NOT use them for routing, priority, notification text, or UI
+(`construct-server/shared/proto/core/envelope.proto:386`-`:418`).
+New normal sealed sends leave `content_type` at `UNSPECIFIED = 0`,
+which proto3 omits from the wire. The real application content type
+rides inside the encrypted payload, currently as KNST byte 5 on framed
+payloads. The client constrains this boundary with `SealedEnvelopeType`:
+`.generic` serialises to no content type, while only the two structural
+exceptions `SESSION_RESET` (21) and `SESSION_RESET_INIT` (24) may be
+declared before decryption
+(`construct-ios` `Services/Messaging/ContentTypeRouting.swift:39`-`:82`,
+`:171`-`:197`; `Security/StealthSenderService.swift:393`-`:415`).
 
 What each party sees:
 
@@ -52,24 +78,27 @@ What each party sees:
   blob and its `forwarding_token`. It routes by destination domain and
   forwards the blob without parsing it.
 - **Destination server**: parses `SealedInner`. It learns the
-  **recipient**, the `content_type` (message kind — needed to compose the
-  push notification and set priority), the `delivery_tag` (for replay
-  suppression), and the opaque `encrypted_payload`. It does **not** learn
-  the **sender**: the sender identity lives only inside
+  **recipient**, the `delivery_tag` (for replay suppression), optional
+  Privacy Pass token fields, optional `token_spend_id`, and the opaque
+  `encrypted_payload` size. For ordinary sealed traffic it does **not**
+  learn the message kind; it can see only the deprecated/structural
+  `content_type` exceptions if present. It does **not** learn the
+  **sender**: the sender identity lives only inside
   `sender_cert_ciphertext`, which is encrypted to the recipient's identity
   key, and which the server "MUST NOT attempt to decrypt"
-  (`envelope.proto:390`).
+  (`envelope.proto:398`-`:404`).
 
 On the single-server deployment shipping today the home and destination
 roles are the same process, so it sees the `SealedInner` fields above — but
 still never the sender.
 
-On the client, the outer-envelope masking is applied in `construct-ios`
-`Networking/gRPC/Services/MessagingServiceClient.swift` (`buildEnvelope`):
-when a `SealedInner` is present it sets `sealed_sender` and omits `sender`,
-`conversation_id`, and the real `content_type` from the outer `Envelope`.
-Server-side reconstruction and the sender-hiding path are in
-`messaging-service/src/envelope.rs:38` (`if envelope.is_sealed_sender { … }`).
+On the client, the current no-outer-envelope path is
+`construct-ios` `Networking/gRPC/Services/MessagingServiceClient.swift`
+(`SendSealedMessage`) plus `Security/StealthSenderService.swift`
+(`buildSealedInner`). Server-side routing is
+`construct-server/messaging-service/src/envelope.rs:139`-`:270`: the
+federation hop forwards `sealed_inner` opaquely, while local delivery
+decodes only `recipient_user_id`, token fields, and `delivery_tag`.
 
 ## 8.3 Sender certificate and recipient verification
 
@@ -122,15 +151,17 @@ toggle to turn it off (`construct-ios` `Services/StealthPolicy.swift:42`
 `isEnabled`, `:71` `shouldUseSealedSender`). DEBUG builds keep a developer
 override for exercising the legacy identified path.
 
-**Invariant (fail-closed): while stealth is on, every message send is
-sealed or queued — it is never emitted identified.** Identified sends are
-legal only when `shouldUseSealedSender()` is false. When sealing is
-temporarily impossible (recipient identity key not yet known, sender
+**Invariant (fail-closed): while stealth is on, every in-scope
+application send is sealed or queued — it is never emitted identified.**
+Identified sends are legal only when `shouldUseSealedSender()` is false
+or when the traffic class is deliberately excluded below. When sealing
+is temporarily impossible (recipient identity key not yet known, sender
 certificate unfetchable), the send does not fall back to an identified
-envelope; it throws `StealthDowngradeBlocked` and the message is held for a
-later retry (`StealthSendRecovery.swift`, `ChunkedMessageDelivery.swift`).
-This closes a server-influence deanonymisation vector: a server that could
-force identified sends by failing sealed ones could deanonymise on demand.
+envelope; it throws `StealthDowngradeBlocked` and the message is held
+for a later retry (`StealthSendRecovery.swift`,
+`ChunkedMessageDelivery.swift`). This closes a server-influence
+deanonymisation vector: a server that could force identified sends by
+failing sealed ones could deanonymise on demand.
 
 Traffic **in scope** (sealed):
 
@@ -148,15 +179,20 @@ Traffic **in scope** (sealed):
 Traffic **deliberately excluded** (identified, by decision — the leak is
 low-value or the frequency/cost is high):
 
-- End-to-end heartbeats (`content_type = 13`).
+- End-to-end heartbeats (`content_type = 13`). Their real type is now
+  inside the encrypted KNST frame rather than in a server-visible
+  heartbeat content type, but they still use the identified send path
+  (`construct-ios` `Services/Messaging/OutboundSessionService.swift:187`-`:233`).
 - Multi-device internal sync (a user talking to their own devices).
 
 ## 8.5 Anti-abuse: Privacy Pass tokens
 
 Removing the sender identity also removes the server's usual per-sender
 abuse lever. Konstruct restores one with **Privacy Pass** anonymous tokens:
-a sealed send MAY carry `token_nonce` + `token_bytes` (`envelope.proto:409`),
-a blind-signed single-use credential the sender spends from a local wallet.
+a sealed send MAY carry `token_nonce` + `token_bytes` and may carry
+`token_spend_id` for multi-envelope logical messages
+(`envelope.proto:420`-`:444`), a blind-signed single-use credential
+the sender spends from a local wallet.
 The token is itself sealed to the destination server's X25519 key so relay
 operators cannot read the spent token. The full construction — the VOPRF,
 issuance/redemption, and the verifiable-issuance DLEQ proof — is specified
@@ -209,7 +245,7 @@ still observe the following. This is the honest counterpart to §8.1.
 | Message **content** | No | End-to-end encrypted; key material is not on the server. |
 | **Sender** identity (per message) | No (sealed) | Only inside the recipient-encrypted certificate. |
 | **Recipient** identity + timing | **Yes** | Required to deliver; `SealedInner.recipient_user_id`. |
-| Message **kind** (`content_type`) | **Yes** | Needed for notification text / priority. |
+| Message **kind** (`content_type`) | No for ordinary sealed traffic | Only the deprecated/structural exceptions 21 and 24 may appear before decryption; normal sealed traffic leaves the field absent. |
 | Ciphertext **size after padding**, volume | **Yes** | Padding buckets blunt but do not erase this. |
 | **Contact graph** | **Yes** | Contact relationships are stored to route streams. |
 | Connection **IP** (live) | **Yes** | At connection time; only a salted hash is retained (§8.6). |

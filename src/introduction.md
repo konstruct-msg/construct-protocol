@@ -26,6 +26,10 @@ handshake + Double Ratchet for ongoing messaging — extended with:
 
 - A hybrid post-quantum KEM (**ML-KEM-768**, NIST FIPS 203) layered
   alongside the classical X25519 key exchange.
+- A sparse continuous post-quantum ratchet (Suite 3) that can add new
+  ML-KEM-768 contributions after session establishment.
+- Metadata-minimising sealed sender, backed by Privacy Pass tokens for
+  abuse resistance.
 - A pluggable transport layer (**VEIL**) designed to keep the messenger
   reachable when the network operator is hostile.
 - A binary FFI envelope (**CFE**) so the Rust crypto core can be shared
@@ -42,9 +46,10 @@ handshake + Double Ratchet for ongoing messaging — extended with:
   implementers, auditors, and readers who want the protocol at the
   level of cryptographic detail needed to reason about it or build a
   compatible client.
-- **Not a full protocol RFC.** Wire format reference, error code
-  registry, and the federation / group-chat protocols are out of scope
-  for v0.1 and will land in later versions.
+- **Not a full protocol RFC.** This draft now includes the 1:1 wire
+  formats and error registry, but federation and group messaging are
+  still documented at status/design level rather than as complete
+  independent interop specifications.
 
 ## Conventions
 
@@ -61,13 +66,13 @@ public reference implementation
 
 | Area | Status |
 |---|---|
-| Cryptographic core (X3DH, Double Ratchet, hybrid PQ KEM) | Implemented and used in production by the iOS TestFlight build. |
+| Cryptographic core (X3DH, Double Ratchet, hybrid PQ KEM, Suite 3 PQ ratchet) | Implemented and used in production by the iOS TestFlight build. |
 | iOS / macOS client | Production-quality code, distributed via [TestFlight beta](https://testflight.apple.com/join/NH3WssFh). No public App Store release yet. |
-| Android client | Phase 0 — Rust core builds, Kotlin wrapper not yet written. |
+| Android client | Phase 0 — Rust core cross-compiles and UniFFI bindings exist; no shipping Kotlin product surface yet. |
 | Federation (server-to-server) | **Implemented** — inbound + outbound sealed delivery, Ed25519-signed. Multi-node interoperability test outstanding. |
-| Sealed sender | **Implemented and on by default** — all outgoing user traffic (messages, receipts, call signalling, session-control handshake) is sealed and leaves no `sender_id` at rest; identified-downgrade paths are fail-closed. Privacy Pass token *enforcement* runs in `warn` mode (not `enforce`). |
-| MLS group chat | Implemented in `construct-core` but not yet documented at protocol-spec level. To be added in a future revision. |
-| QUIC / HTTP-3 transport | **In production** — plain QUIC (`construct-transport`), always-on with an HTTP/2 fallback. |
+| Sealed sender | **Implemented and on by default** — all in-scope outgoing user traffic (messages, receipts, call signalling, session-control handshake) is sealed and leaves no server-readable sender id in sealed delivery; identified-downgrade paths are fail-closed. Privacy Pass token *enforcement* runs in `warn` mode (not `enforce`). |
+| MLS group chat | Core implemented and documented in [Chapter 12](./12-group-messaging.md) as design / partial; no shipping product surface and not yet a full normative interop spec. |
+| QUIC / HTTP-3 transport | **In production** — engine-QUIC direct path, plain QUIC in release, with an HTTP/2 fallback. |
 | VEIL veil-front (honest-front transport) | **In production** — the primary obfuscation transport for censored networks. |
 | VEIL obfs4 / WebTunnel (legacy) | **Retired** — cut by active DPI in the target region; superseded by veil-front, standalone relay archived. |
 | External security audit | Planned. Not yet performed. |

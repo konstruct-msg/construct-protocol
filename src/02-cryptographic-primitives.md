@@ -3,9 +3,10 @@
 This chapter enumerates every cryptographic primitive that an
 interoperable Konstruct implementation MUST use, with concrete
 parameters, byte sizes, and crate-level references to the verified
-reference implementation. Two cryptographic suites are defined:
-Suite 1 (classical, always active) and Suite 2 (Suite 1 plus a
-post-quantum KEM, opt-in).
+reference implementation. Three core suite identifiers are currently
+accepted by `construct-core`: Suite 1 (classical), Suite 2 (PQXDH
+hybrid KEM + optional hybrid signatures), and Suite 3 (sparse
+continuous ML-KEM-768 ratchet).
 
 Keywords MUST, MUST NOT, SHOULD, MAY are per
 [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
@@ -16,15 +17,20 @@ Each session is parameterised by a suite identifier. The suite is
 fixed at handshake time and MUST NOT change for the lifetime of the
 session.
 
-| Identifier | Value (u16, big-endian on wire) | Description |
+| Identifier | Value | Description |
 |---|---|---|
 | `SUITE_CLASSIC_V1` | `0x0001` | X25519 + Ed25519 + ChaCha20-Poly1305 + HKDF-SHA256 |
-| `SUITE_PQ_HYBRID_V1` | `0x0002` | Suite 1 + ML-KEM-768 hybrid KEM |
+| `SUITE_PQ_HYBRID_V1` | `0x0002` | Suite 1 + deferred ML-KEM-768 (Kyber-768) PQXDH contribution + optional hybrid signatures |
+| `SUITE_PQ_RATCHET_V1` | `0x0003` | Suite 1 + sparse continuous ML-KEM-768 ratchet mixed at the message-key layer |
 
 The suite identifier appears in the WirePayload header
 ([Chapter 5 §5.3](./05-message-encryption.md#53-wire-format-wirepayload-header))
 and MUST be checked by the receiver before any cryptographic
 operation; a mismatched suite MUST cause the message to be rejected.
+In the WirePayload header it is encoded as `u16` little-endian
+(`construct-core/src/wire_payload.rs:15`, `:106`-`:129`). Signature
+prologues use their own explicitly-specified byte order (§2.2.2).
+The accepted IDs are defined in `construct-core/src/crypto/suite_id.rs:22`-`:33`.
 
 ## 2.2 Suite 1 — Classical (always active)
 
@@ -54,10 +60,16 @@ operation; a mismatched suite MUST cause the message to be rejected.
   `VerifyingKey::verify_strict` where strict validation is required.
 - An interoperable signer MUST sign the same canonical encoding of the
   signed artefact. Signed artefacts in this specification are:
-  - Signed prekey: `Ed25519_Sign(SK_priv, SPK_pub || rotation_epoch_be)`
-  - Kyber signed prekey: `Ed25519_Sign(SK_priv, KEM_pub || rotation_epoch_be)`
-  - Other artefacts (registration receipts, invites) are out of scope
-    for v0.1.
+  - X25519 signed prekey: `Ed25519_Sign(SK_priv, b"KonstruktX3DH-v1" || [0x00, 0x01] || SPK_pub)`.
+  - ML-KEM-768 signed prekey: `Ed25519_Sign(SK_priv, b"KonstruktX3DH-v1" || [0x00, 0x10] || KEM_pub)`.
+  - Hybrid identity binding: `Ed25519_Sign(SK_priv, b"KonstruktHybridId-v1" || hybrid_identity_key)`.
+
+`spk_rotation_epoch` is a freshness/replay field carried beside the
+prekey in the bundle; it is not part of the current prekey signature
+message. Server verification builds the prekey message in
+`construct-server/key-service/src/core.rs:150`-`:179`; the shared
+hybrid helper builds the same bytes in
+`construct-server/crates/construct-crypto/src/pqc/hybrid.rs:55`-`:65`.
 
 ### 2.2.3 ChaCha20-Poly1305 AEAD
 
@@ -89,18 +101,27 @@ AES-256-GCM key). AES-256-GCM here rides Apple/hardware-accelerated
 - Algorithm: HKDF per [RFC 5869](https://www.rfc-editor.org/rfc/rfc5869),
   instantiated with SHA-256.
 - Crate: `hkdf 0.12`.
-- Three distinct HKDF invocations appear in the specification, each
+- Several distinct HKDF invocations appear in the specification, each
   with a normative `info` byte string. Implementations MUST use the
   exact byte strings below.
 
 | Use | `salt` | `IKM` | `info` | `L` |
 |---|---|---|---|---|
 | X3DH root key (Ch. 4 §4.3) | `[0xFF; 32]` | `DH_combined` | `b"Construct-X3DH-RootKey-v1"` (25 B) | 32 |
-| Double Ratchet root step (Ch. 5 §5.2) | `RK` | `dh_out` (32 B) | `b"Construct-DoubleRatchet-RootKey-v1"` (33 B) | 64 |
-| PQ contribution at RK₁ (Ch. 4 §4.5) | `RK₁` | `kem_ss` (32 B) | `b"Construct-X3DH-RootKey-v1"` (25 B) | 32 |
+| Initial Double Ratchet root normalisation | `[0xFE; 32]` | X3DH root key | `b"InitialRootKey"` (14 B) | 32 |
+| Double Ratchet root step (Ch. 5 §5.2) | `RK` | `dh_out` (32 B) | `b"Double-Ratchet-Root-Key-Expansion"` (33 B) | 64 |
+| Double Ratchet chain step (Ch. 5 §5.2) | `CK` | empty string | `b"Double-Ratchet-Chain-Key-Expansion"` (34 B) | 64 |
+| PQ contribution at RK₁ (Ch. 4 §4.5) | `RK₁` | `kem_ss` (32 B) | `b"construct-pqxdh-v1"` (18 B) | 32 |
+| Suite 3 PQ message-key mix | `pq_epoch_secret` | Double Ratchet message key | `b"construct-pqr-msg-v1"` (20 B) | 32 |
+| Suite 3 EK hash | empty string | ML-KEM-768 encapsulation key | `b"construct-pqr-ekhash-v1"` (23 B) | 8 |
 
-The Double Ratchet chain-step uses HMAC-SHA-256 directly rather than
-HKDF; see [Chapter 5 §5.2](./05-message-encryption.md#52-kdf-helpers).
+The Double Ratchet root and chain KDFs are implemented in
+`construct-core/src/crypto/suites/classic.rs:233`-`:257` and mirrored
+by the hybrid provider. The initial root normalisation is in
+`construct-core/src/crypto/messaging/double_ratchet/messaging.rs:54`-`:59`.
+The PQXDH and Suite 3 HKDF calls are in
+`construct-core/src/crypto/messaging/double_ratchet/internals.rs:62`-`:99`
+and `:280`-`:438`.
 
 ### 2.2.5 PBKDF2 (password-based KDF)
 
@@ -159,9 +180,11 @@ ratchet step (the "deferred" application; see
 The combined session security is determined by:
 
 ```
-SK_root  = HKDF(F, DH_combined, "Construct-X3DH-RootKey-v1", 32)
-RK₁      = (root after first DH ratchet step)
-RK₁'     = HKDF(RK₁, kem_ss, "Construct-X3DH-RootKey-v1", 32)
+SK_root = HKDF(salt = F, IKM = DH_combined,
+               info = "Construct-X3DH-RootKey-v1", L = 32)
+RK₁     = (root after first DH ratchet step)
+RK₁'    = HKDF(salt = RK₁, IKM = kem_ss,
+               info = "construct-pqxdh-v1", L = 32)
 ```
 
 Because RK₁' depends on both `DH_combined` (classical) and `kem_ss`
@@ -174,15 +197,68 @@ and the reason Suite 2 is constructed as KEM **alongside** rather than
 
 ### 2.3.3 Signatures in Suite 2
 
-Suite 2 does **not** define hybrid signatures. All signature
-operations (signed prekey, signed Kyber prekey, registration receipts)
-use Ed25519 even when the session is operating under Suite 2.
+Suite 2 keeps Ed25519 signatures as the mandatory classical
+authentication path and adds optional, capability-gated hybrid
+signatures using **ML-DSA-65 (Dilithium-3)** per NIST FIPS 204.
+Hybrid signatures do not replace Ed25519 in the current wire format;
+they are an additional attestation over the same prekey sign-message.
 
-Hybrid PQ signatures using ML-DSA-65 (Dilithium-3, NIST FIPS 204) are
-planned but **not yet implemented**; see
-[Implementation Status §7.1](./07-implementation-status.md#71-component-matrix).
+The hybrid signature public key format is:
 
-## 2.4 Randomness
+```
+hybrid_identity_key = ed25519_pk(32) || mldsa65_pk(1952)       -- 1984 B
+hybrid_signature    = ed25519_sig(64) || mldsa65_sig(3309)     -- 3373 B
+```
+
+The stored hybrid signing secret is
+`ed25519_seed(32) || mldsa65_seed(32) || mldsa65_pk(1952)`
+(2016 B). The device binds that independent hybrid identity key to
+its existing Ed25519 identity with
+`Ed25519("KonstruktHybridId-v1" || hybrid_identity_key)`. Prekey-level
+hybrid signatures cover
+`"KonstruktX3DH-v1" || [0x00, suite_id] || public_key`, where
+`suite_id = 0x01` for the X25519 SPK and `suite_id = 0x10` for the
+ML-KEM-768 SPK. Reference sizes and verification behaviour:
+`construct-core/src/crypto/suites/hybrid.rs:1`-`:51`,
+`construct-server/shared/proto/services/key_service.proto:248`-`:270`,
+and `construct-ios` `Security/HybridBundleVerifier.swift:34`-`:120`.
+
+If a bundle lacks hybrid fields, a conforming client MUST continue to
+accept the Ed25519-only path. If the hybrid identity cross-signature
+is present and invalid, the bundle MUST be rejected. If the hybrid
+identity is authentic but a prekey-level hybrid signature is missing
+or invalid, the reference client degrades to the classical Ed25519
+attestation path instead of hard-failing reachability
+(`HybridBundleVerifier.swift:72`-`:109`).
+
+## 2.4 Suite 3 — Sparse continuous PQ ratchet
+
+Suite 3 (`0x0003`) is a ratchet-level extension, not a new protobuf
+`CryptoSuite` bundle value. A new session may negotiate Suite 3 only
+when the fetched bundle advertises `supports_pq_ratchet`; the iOS
+client maps bundle crypto-suite values only to core suite 1 or 2 and
+derives suite 3 from that capability
+(`construct-ios` `Networking/gRPC/Services/KeyServiceClient.swift:418`-`:430`;
+`construct-core/src/crypto/client_api.rs:1082`-`:1152`).
+
+At a configured cadence, the designated Suite 3 initiator attaches an
+ML-KEM-768 encapsulation key to outgoing messages. The peer
+encapsulates once and re-attaches the ciphertext until the initiator
+activates the epoch. Completed PQ epoch secrets are not mixed into
+the Double Ratchet root or chain keys; instead, the per-message key is:
+
+```
+MK_pq = HKDF(salt = pq_epoch_secret,
+             IKM = MK_dr,
+             info = "construct-pqr-msg-v1", L = 32)
+```
+
+`pq_message_epoch = 0` means no PQ epoch has been mixed yet. Unknown
+or evicted non-zero epochs are a hard decrypt error, because silently
+skipping the mix would be a downgrade. The implemented state machine
+is in `construct-core/src/crypto/messaging/double_ratchet/internals.rs:276`-`:438`.
+
+## 2.5 Randomness
 
 All key generation, ephemeral keypair generation, and AEAD nonces MUST
 be sourced from a cryptographically secure RNG. The reference uses
@@ -194,7 +270,7 @@ Implementations MUST NOT use deterministic or counter-derived
 randomness for any of the values above. A failure of the OS RNG MUST
 cause the operation to abort, not to proceed with a weak source.
 
-## 2.5 Key zeroization
+## 2.6 Key zeroization
 
 All ephemeral and per-message keys MUST be zeroised before their
 memory is released:
@@ -212,20 +288,27 @@ The reference uses `zeroize` / `zeroize::Zeroizing` from the
 are kept in platform-protected storage; they are not zeroised at
 runtime because they are needed across process lifetimes.
 
-## 2.6 Constants summary
+## 2.7 Constants summary
 
 For ease of cross-reference, all normative byte constants used in this
 specification:
 
 | Constant | Value | Length |
 |---|---|---|
-| Prologue | `b"KonstruktX3DH-v1"` | 17 B |
+| X3DH/prekey prologue | `b"KonstruktX3DH-v1"` | 16 B |
+| Hybrid identity bind prologue | `b"KonstruktHybridId-v1"` | 20 B |
 | Salt F (X3DH HKDF) | `[0xFF; 32]` | 32 B |
+| Salt for initial DR root | `[0xFE; 32]` | 32 B |
 | Info (X3DH root key) | `b"Construct-X3DH-RootKey-v1"` | 25 B |
-| Info (Double Ratchet root step) | `b"Construct-DoubleRatchet-RootKey-v1"` | 33 B |
-| Info (PQ contribution) | `b"Construct-X3DH-RootKey-v1"` | 25 B |
-| Suite 1 ID | `0x0001` | 2 B (u16 BE) |
-| Suite 2 ID | `0x0002` | 2 B (u16 BE) |
+| Info (initial DR root) | `b"InitialRootKey"` | 14 B |
+| Info (Double Ratchet root step) | `b"Double-Ratchet-Root-Key-Expansion"` | 33 B |
+| Info (Double Ratchet chain step) | `b"Double-Ratchet-Chain-Key-Expansion"` | 34 B |
+| Info (PQXDH contribution) | `b"construct-pqxdh-v1"` | 18 B |
+| Info (Suite 3 message-key mix) | `b"construct-pqr-msg-v1"` | 20 B |
+| Info (Suite 3 EK hash) | `b"construct-pqr-ekhash-v1"` | 23 B |
+| Suite 1 ID | `0x0001` | 2 B (`u16`; LE in WirePayload, BE inside X3DH prologue) |
+| Suite 2 ID | `0x0002` | 2 B (`u16`; LE in WirePayload, BE inside X3DH prologue) |
+| Suite 3 ID | `0x0003` | 2 B (`u16`; LE in WirePayload) |
 | Argon2id version | `V0x13` | — |
 | CFE magic | `[0x43, 0x46]` ("CF") | 2 B |
 | CFE version | `0x01` | 1 B |
@@ -234,12 +317,13 @@ These constants MUST be byte-identical between conforming
 implementations. Changing any of them produces an instantly
 non-interoperable handshake or AEAD failure.
 
-## 2.7 References
+## 2.8 References
 
 - Reference implementation (single source of truth for parameters
   above): `construct-core/`, particularly `src/crypto/`, `src/pow.rs`,
   and `Cargo.toml`.
 - NIST FIPS 203 (ML-KEM): <https://csrc.nist.gov/pubs/fips/203/final>
+- NIST FIPS 204 (ML-DSA): <https://csrc.nist.gov/pubs/fips/204/final>
 - RFC 7748 (X25519): <https://www.rfc-editor.org/rfc/rfc7748>
 - RFC 8032 (Ed25519): <https://www.rfc-editor.org/rfc/rfc8032>
 - RFC 8439 (ChaCha20-Poly1305): <https://www.rfc-editor.org/rfc/rfc8439>

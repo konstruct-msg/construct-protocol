@@ -37,6 +37,7 @@ by `.github/workflows/deploy.yml`.
 ├── src/
 │   ├── SUMMARY.md         table of contents
 │   ├── introduction.md
+│   ├── architecture-overview.md
 │   ├── 01-threat-model.md
 │   ├── 02-cryptographic-primitives.md
 │   ├── 03-identity-key-hierarchy.md
@@ -44,6 +45,13 @@ by `.github/workflows/deploy.yml`.
 │   ├── 05-message-encryption.md
 │   ├── 06-transport.md
 │   ├── 07-implementation-status.md
+│   ├── 08-metadata-privacy.md
+│   ├── 09-privacy-pass.md
+│   ├── 10-calls.md
+│   ├── 11-account-recovery.md
+│   ├── 12-group-messaging.md
+│   ├── 13-key-transparency.md
+│   ├── appendix-a-errors.md
 │   ├── disclosure.md
 │   └── changelog.md
 ├── .github/workflows/deploy.yml   GitHub Actions → Pages
