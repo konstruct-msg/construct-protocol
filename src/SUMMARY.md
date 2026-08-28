@@ -22,6 +22,7 @@
 ---
 
 - [Appendix A — Error Registry](./appendix-a-errors.md)
+- [Appendix B — Post-Quantum Designs Elsewhere](./appendix-b-pq-comparison.md)
 
 ---
 

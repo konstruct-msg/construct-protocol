@@ -214,3 +214,32 @@ copied:
     real `content_type`; `SealedInner.content_type`, `priority`, and `ttl`
     are deprecated server-visible compatibility fields, with only structural
     exceptions 21 and 24 allowed before decryption.
+- **Suite 3 operational parameters and prior-art comparison (2026-08-28).**
+  Read out of `construct-core` while answering how the classical and
+  post-quantum halves combine end to end.
+  - §2.4.1 adds the cadence and retention constants that the chapter
+    previously described only as "a configured cadence": 16 **DH-ratchet
+    turns** (clamped `[4, 64]`), 4 retained epoch secrets, unanswered
+    proposals abandoned by age. The unit matters and was not stated: the
+    counter advances inside the DH ratchet step, so a one-sided burst of
+    any length makes no PQ progress. A pending field rides on every
+    outgoing frame including delivery receipts, so an acknowledging peer
+    carries the exchange forward without replying.
+  - §2.4.2 adds five normative rules that were implemented but unwritten:
+    commit-on-success (a malformed PQ field must not alter session state
+    and must not affect its carrier's classical delivery), re-attach until
+    implicitly acknowledged, one exchange in flight, `ek_hash`
+    disambiguation of re-proposals, and the fact that the epoch secret is
+    constant within an epoch.
+  - New [Appendix B](./appendix-b-pq-comparison.md) compares the
+    construction with Signal PQXDH, Signal's Triple Ratchet / SPQR
+    (October 2025), Apple iMessage PQ3, and the MLS post-quantum
+    cipher-suite drafts, on five axes: handshake-only versus continuing,
+    rekey cadence, how the 1184/1088-byte KEM objects are carried,
+    advancing without a reply, and the granularity of the post-quantum
+    guarantee.
+  - §7.3 records four open issues that comparison surfaced — `PQR-1`
+    (no wall-clock rekey floor), `PQR-2` (epoch-granular post-quantum
+    forward secrecy against message-granular classical), `PQR-3` (KEM
+    objects carried whole and re-attached per message), `PQR-4` (epoch
+    retention of 4 against a skipped-key tolerance of 1000).

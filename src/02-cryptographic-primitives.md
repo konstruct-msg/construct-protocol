@@ -258,6 +258,74 @@ or evicted non-zero epochs are a hard decrypt error, because silently
 skipping the mix would be a downgrade. The implemented state machine
 is in `construct-core/src/crypto/messaging/double_ratchet/internals.rs:276`-`:438`.
 
+### 2.4.1 Cadence and retention
+
+| Parameter | Reference value | Source |
+|---|---|---|
+| Rekey cadence | 16 DH-ratchet turns | `construct-core/src/config.rs:141` |
+| Cadence bounds (env override) | clamped to `[4, 64]` | `config.rs:216`-`:218` |
+| Retained completed epoch secrets | 4 | `double_ratchet/mod.rs:180` |
+| Unanswered proposal abandoned after | `max_skipped_message_age_seconds` | `internals.rs:243`-`:252` |
+
+The counter advances inside the DH ratchet step
+(`internals.rs:217`), so the unit is a **DH ratchet turn — a change of
+conversational direction — not a message and not elapsed time**. A
+one-sided burst of a hundred messages performs no DH step and so makes
+no PQ progress; sixteen alternations do. The reference implementation
+has no time-based floor.
+
+A pending field is attached by `encrypt` to *every* outgoing frame
+(`messaging.rs:385`), which includes control frames such as delivery
+receipts. A peer that only sends receipts therefore both advances the
+turn counter and carries the exchange forward, without the user
+replying.
+
+Retention is a hard bound with a hard consequence. A message naming an
+epoch that has already been evicted is a decrypt error, by the same
+no-silent-downgrade rule as an unknown epoch. Implementations that
+tolerate deeper reordering than the reference MUST raise the retention
+count rather than relax the error.
+
+### 2.4.2 Normative rules for the sparse exchange
+
+1. **Commit on success only.** PQ processing of a received frame — EK
+   ingestion, ciphertext completion, epoch promotion — MUST run only
+   after the carrying message has authenticated and decrypted. A
+   malformed or hostile PQ field MUST NOT alter session state, and the
+   classical delivery of its carrier MUST be unaffected. By
+   construction an EK/CT field always rides on a frame tagged with a
+   pre-completion epoch, so decrypting the carrier never depends on the
+   material it carries
+   (`internals.rs:352`-`:388`).
+
+2. **Re-attach until implicitly acknowledged.** There is no explicit
+   acknowledgement frame. The initiator re-attaches its EK to every
+   outgoing message until a matching ciphertext arrives; the responder
+   re-attaches its ciphertext until a peer message tagged at or above
+   the provisional epoch arrives — which proves the initiator
+   decapsulated the same secret, because that tag was just used
+   successfully to derive the message key. A dropped message therefore
+   costs bandwidth, never a stuck exchange
+   (`internals.rs:449`-`:466`).
+
+3. **One exchange in flight.** A new proposal MUST NOT be started while
+   one is pending; the cadence counter simply retries on the next turn.
+
+4. **`ek_hash` disambiguates re-proposals.** After an unanswered
+   proposal is abandoned, the same epoch number may be re-proposed with
+   a fresh keypair. The 8-byte `ek_hash` accompanying a ciphertext
+   identifies which encapsulation key it completes; a ciphertext whose
+   hash does not match the pending keypair MUST be ignored, and the
+   local proposal kept.
+
+5. **Epoch secrets are constant within an epoch.** The reference
+   derives every message key of an epoch from the same
+   `pq_epoch_secret`; the post-quantum component does not ratchet
+   between rekeys. Forward secrecy within an epoch is supplied by the
+   classical Double Ratchet alone. See
+   [Appendix B](./appendix-b-pq-comparison.md) for how this compares
+   with other deployed designs.
+
 ## 2.5 Randomness
 
 All key generation, ephemeral keypair generation, and AEAD nonces MUST
@@ -309,6 +377,11 @@ specification:
 | Suite 1 ID | `0x0001` | 2 B (`u16`; LE in WirePayload, BE inside X3DH prologue) |
 | Suite 2 ID | `0x0002` | 2 B (`u16`; LE in WirePayload, BE inside X3DH prologue) |
 | Suite 3 ID | `0x0003` | 2 B (`u16`; LE in WirePayload) |
+| Suite 3 rekey cadence | 16 ratchet turns (clamped `[4, 64]`) | — |
+| Suite 3 retained epoch secrets | 4 | — |
+| ML-KEM-768 encapsulation key | 1184 | B |
+| ML-KEM-768 ciphertext | 1088 | B |
+| ML-KEM-768 shared secret | 32 | B |
 | Argon2id version | `V0x13` | — |
 | CFE magic | `[0x43, 0x46]` ("CF") | 2 B |
 | CFE version | `0x01` | 1 B |
