@@ -73,8 +73,10 @@ WirePayload (header, 52 bytes fixed + variable extension fields) ::=
     kyber_otpk_id       : u32  little-endian         (4 B)  -- 0 if N/A
     kem_len             : u16  little-endian         (2 B)
     prev_chain_length   : u32  little-endian         (4 B)
-    suite_id            : u16  little-endian         (2 B)  -- bit 0x0100 = PQXDH v2 header
+    suite_id            : u16  little-endian         (2 B)  -- bits 0x0100 / 0x0200 / 0x0400, below
     -- followed by kem_ct (kem_len bytes; absent when kem_len = 0)
+    -- followed by u16 LE len + KIK_A (1568 B) when bit 0x0200 is set (first flight only)
+    -- followed by u16 LE len + kik_ct (1568 B) when bit 0x0400 is set (responder, until proved)
     -- followed by Suite 3 PQ section when suite_id = 0x0003
     -- followed by AEAD framing (nonce || ciphertext || tag)
 ```
@@ -86,7 +88,13 @@ PQXDH v2 handshake header (Ch. 4 §4.3 Step 5), 1568 bytes of ML-KEM-1024
 ciphertext, present on every message of the initiator's first flight and
 absent afterwards. A frame that carries it sets bit `0x0100` of `suite_id`
 (`PQXDH_V2_FLAG`, `wire_payload.rs:36`); `unpack` strips the bit, so the
-suite the AEAD authenticates is the low byte. A KEM ciphertext on a frame
+suite the AEAD authenticates is the low byte. Bit `0x0200` marks the
+initiator's KEM identity key after the ciphertext, and is valid only with
+`0x0100`; bit `0x0400` marks the responder's answer to it (Ch. 4 §4.4.4).
+Both objects are exactly 1568 bytes; any other length is refused at
+unpack. A platform MUST hand the whole payload to the core: a message
+rebuilt from parsed fields loses the answer, and the initiator cannot
+read the reply. A KEM ciphertext on a frame
 is exactly what makes it able to open a session (§4.4.1). The
 pack/unpack routines are `wire_payload::pack` /
 `wire_payload::unpack`; deviating from the ordering or endianness

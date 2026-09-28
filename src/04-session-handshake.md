@@ -41,11 +41,15 @@ Fixed byte strings:
 |---|---|---|
 | Prologue | `b"KonstruktX3DH-v1"` (16 bytes) | `construct-core/src/crypto/keys.rs` |
 | Salt F | `[0xFF; 32]` | `construct-core/src/crypto/handshake/x3dh.rs:167` |
-| HKDF info, PQXDH v2 root key | `b"Construct-PQXDH-RootKey-v2"` ‖ SHA-256(KEM_pub) ‖ SHA-256(kem_ct) | `x3dh.rs:154`, `:171`-`:176` |
+| HKDF info, PQXDH root key | `b"Construct-PQXDH-RootKey-v3"` ‖ SHA-256(KEM_pub) ‖ SHA-256(kem_ct) ‖ SHA-256(KIK_A) | `x3dh.rs` (`X3DH_ROOT_INFO_PQXDH`, `derive_root_key`) |
 | HKDF info, classical root key | `b"Construct-X3DH-RootKey-v1"` — builds without the `post-quantum` feature only; such builds cannot open sessions with the shipping clients | `x3dh.rs:152` |
 | Kyber prekey signature suite byte | `0x11` | `construct-core/src/crypto/kyber_prekey_auth.rs:37` |
 | Kyber SPK maximum age | 30 days, by signed `created_at` | `kyber_prekey_auth.rs:42` |
-| PQXDH v2 wire flag | bit `0x0100` of the wire `suite_id` | `construct-core/src/wire_payload.rs:36` |
+| PQXDH v2 wire flag | bit `0x0100` of the wire `suite_id` | `construct-core/src/wire_payload.rs` (`PQXDH_V2_FLAG`) |
+| KEM identity key flag | bit `0x0200`: the initiator's KEM identity key follows the KEM ciphertext | `wire_payload.rs` (`KEM_IDENTITY_FLAG`) |
+| Identity answer flag | bit `0x0400`: the responder's answer to it follows | `wire_payload.rs` (`IDENTITY_PROOF_FLAG`) |
+| KEM identity seed | `HKDF-SHA256(salt = ∅, IKM = ML-DSA-65 seed of the hybrid key, info = b"Construct-KEM-identity-v1", L = 64)` | `construct-core/src/crypto/keys.rs` (`kem_identity_seed`) |
+| Identity-answer mix labels | `b"Construct-KEM-identity-root-v1"`, `b"Construct-KEM-identity-chain-v1"` | `double_ratchet/internals.rs` (`mix_identity_secret`) |
 | Suite identifiers | `0x0001` classic, `0x0002` PQ hybrid signatures, `0x0003` PQ ratchet | `construct-core/src/crypto/suite_id.rs` |
 
 An interoperable implementation MUST use these exact byte values; any difference produces a
@@ -135,11 +139,14 @@ the open issue `BS-3`.
 
 ```
 IKM     = DH1 || DH2 || DH3 [|| DH4] || kem_ss
-info    = b"Construct-PQXDH-RootKey-v2" || SHA-256(KEM_pub_B) || SHA-256(kem_ct)
+info    = b"Construct-PQXDH-RootKey-v3" || SHA-256(KEM_pub_B) || SHA-256(kem_ct) || SHA-256(KIK_A)
 SK_root = KDF(salt = F, IKM, info, L = 32)
 ```
 
-(`x3dh.rs:162`-`:185`.) The Kyber key and ciphertext are bound through `info`. ML-KEM already
+(`x3dh.rs`, `derive_root_key`.) `KIK_A` is Alice's ML-KEM-1024 identity key (§4.4.4). The Kyber
+key, the ciphertext and `KIK_A` are bound through `info`; a `KIK_A` substituted in transit gives
+Bob a different root key, so the first message fails rather than a foreign key being pinned. v2
+of this label had no `KIK_A`; a v2 first message is refused. ML-KEM already
 hashes the encapsulation key into its secret; binding both explicitly removes any reliance on a
 particular KEM's properties. Implementations MUST zeroise `IKM` and `kem_ss` after this step.
 
@@ -154,6 +161,7 @@ header** until Bob's first reply arrives (`construct-core/src/crypto/messaging/d
 
 - `EK_A_pub` and `opk_id` (in the header fields of §5.3);
 - `kem_ct` (1568 bytes) and `kyber_otpk_id` (0 when the KEM-SPK was used);
+- `KIK_A`, Alice's ML-KEM-1024 identity key (1568 bytes), with bit `0x0200`;
 - the PQXDH v2 flag, bit `0x0100` of the wire `suite_id`. The receiver strips it before the
   suite is used; its purpose is that a core without PQXDH v2 rejects the frame as an unknown
   suite instead of deriving a classical key and reading the AEAD failure as corruption.
@@ -221,6 +229,44 @@ If the named OPK or Kyber prekey is no longer held, Bob cannot reproduce the key
 a DECRYPTION_ERROR carrying the hint `PrekeyUnavailable` (§5.10), and Alice's next open skips
 one-time prekeys.
 
+### 4.4.4 The initiator proves its KEM identity key
+
+Everything above authenticates Alice to Bob classically: `DH1` uses her X25519 identity key and
+the certificate carries the server's Ed25519 signature. A quantum adversary able to break both at
+the time of the attack could open a state "from Alice", and since any handshake header opens a
+state (§5.9), at any time. Alice's side does not have this gap — she encapsulates to a Kyber key
+signed by Bob's pinned hybrid key. The proof below closes Bob's side without a signature, so the
+first contact stays deniable (`decisions/responder-authenticates-initiator-by-kem.md`).
+
+1. **The key.** Every device has an ML-KEM-1024 identity key `KIK`, whose 64-byte seed is derived
+   from the ML-DSA-65 seed of its hybrid key (§4.1). It is not stored separately and is restored
+   with the private keys. The X25519 identity is not a usable source: its private half follows
+   from the public one for a quantum adversary.
+2. **The pin.** Bob pins `SHA-256(KIK_A)` for Alice's device on the first open that decrypts. An
+   open naming another `KIK` for a pinned device is refused (`KEM_IDENTITY_CHANGED`); one naming
+   none is refused (`KEM_IDENTITY_REQUIRED`). The first contact is trust-on-first-use, as the
+   initiator's hybrid pin is.
+3. **The answer.** Having opened, Bob computes `(kik_ct, kik_ss) = ML-KEM-1024.Encaps(KIK_A)` and,
+   before sending anything, replaces the root key and his first sending chain key:
+
+   ```
+   RK'  = HKDF(salt = kik_ss, IKM = RK,  info = "Construct-KEM-identity-root-v1",  L = 32)
+   CKs' = HKDF(salt = kik_ss, IKM = CKs, info = "Construct-KEM-identity-chain-v1", L = 32)
+   ```
+
+   `kik_ct` (1568 bytes, bit `0x0400`) rides on every message Bob sends until Alice has proved
+   herself.
+4. **Alice** decapsulates `kik_ct` with `KIK_A` and applies the same two derivations on her first
+   receiving DH ratchet step — to the root and the receiving chain that step produced. Without
+   the answer that step fails (the core reports it); with a wrong key the AEAD fails.
+5. **The proof.** A message from Alice that Bob decrypts on a chain after that step could only be
+   derived by the holder of `KIK_A`. Bob stops attaching `kik_ct` and labels the state
+   `ReceivedProven`; until then it is `Received`.
+
+What this does not give: messages of Alice's first flight are authenticated classically, and an
+unproven state is not treated differently from a proven one when it becomes current. Both are
+open questions in the decision.
+
 ## 4.5 Simultaneous opening
 
 There is **no tie-break**. If Alice and Bob open at the same time, each holds the state it opened
@@ -250,6 +296,9 @@ message, ML-KEM-768 in the ratchet.
 | Sender certificate fails `identity_for_opening` | Do not open. `NoTrustedKey` is transient and retried; the others are refusals. |
 | Responder AEAD fails on the first message | Nothing changes; a held state is restored. OPK is not consumed. |
 | Named OPK / Kyber prekey not held | DECRYPTION_ERROR with `PrekeyUnavailable` (§5.10). |
+| First flight names no KEM identity key | Refuse (`KEM_IDENTITY_REQUIRED`). |
+| KEM identity key differs from the one pinned for the device | Refuse (`KEM_IDENTITY_CHANGED`); a held state is kept. |
+| A reply carries no answer where the first receiving step needs one | The message does not decrypt; nothing changes. |
 | Both devices open at once | Both states kept; see §4.5. |
 
 ## 4.8 Reference

@@ -62,8 +62,10 @@ Restated for completeness:
 | kyber_otpk_id | u32 LE | 4 B | ML-KEM-1024 one-time prekey id consumed; `0` = the KEM-SPK was used |
 | kem_len | u16 LE | 2 B | Length of the KEM ciphertext that follows; `0` when absent |
 | prev_chain_length | u32 LE | 4 B | Previous-chain length `PN` |
-| suite_id | u16 LE | 2 B | `0x0001` Suite 1, `0x0002` Suite 2, or `0x0003` Suite 3; bit `0x0100` set on a frame carrying the PQXDH v2 header |
+| suite_id | u16 LE | 2 B | `0x0001` Suite 1, `0x0002` Suite 2, or `0x0003` Suite 3; bit `0x0100` set on a frame carrying the PQXDH v2 header, `0x0200` with the initiator's KEM identity key, `0x0400` with the responder's answer to it |
 | kem_ct | bytes | `kem_len` B | ML-KEM-1024 ciphertext, 1568 B, on every message of the initiator's first flight (the handshake header) |
+| kem_identity | u16 LE len + bytes | 2 + 1568 B | With bit `0x0200`: the initiator's ML-KEM-1024 identity key (Ch. 4 §4.4.4) |
+| identity_answer | u16 LE len + bytes | 2 + 1568 B | With bit `0x0400`: the responder's ML-KEM-1024 answer to it |
 | suite3_pq_section | bytes | variable | Present only when `suite_id = 0x0003`; see §5.3 |
 | aead_frame | bytes | variable | `nonce(12) || ct(N) || tag(16)` |
 

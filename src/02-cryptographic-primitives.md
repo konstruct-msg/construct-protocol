@@ -109,7 +109,10 @@ AES-256-GCM key). AES-256-GCM here rides Apple/hardware-accelerated
 
 | Use | `salt` | `IKM` | `info` | `L` |
 |---|---|---|---|---|
-| PQXDH v2 root key (Ch. 4 §4.3) | `[0xFF; 32]` | `DH_combined \|\| kem_ss` | `b"Construct-PQXDH-RootKey-v2"` (26 B) `\|\| SHA-256(KEM_pub) \|\| SHA-256(kem_ct)` | 32 |
+| PQXDH root key (Ch. 4 §4.3) | `[0xFF; 32]` | `DH_combined \|\| kem_ss` | `b"Construct-PQXDH-RootKey-v3"` (26 B) `\|\| SHA-256(KEM_pub) \|\| SHA-256(kem_ct) \|\| SHA-256(KIK_A)` | 32 |
+| KEM identity seed (Ch. 4 §4.4.4) | empty | ML-DSA-65 seed (32 B) | `b"Construct-KEM-identity-v1"` (25 B) | 64 |
+| Identity answer, root (Ch. 4 §4.4.4) | `kik_ss` | `RK` | `b"Construct-KEM-identity-root-v1"` (30 B) | 32 |
+| Identity answer, chain (Ch. 4 §4.4.4) | `kik_ss` | `CK` | `b"Construct-KEM-identity-chain-v1"` (31 B) | 32 |
 | Classical X3DH root key (builds without `post-quantum` only) | `[0xFF; 32]` | `DH_combined` | `b"Construct-X3DH-RootKey-v1"` (25 B) | 32 |
 | Initial Double Ratchet root normalisation | `[0xFE; 32]` | X3DH root key | `b"InitialRootKey"` (14 B) | 32 |
 | Double Ratchet root step (Ch. 5 §5.2) | `RK` | `dh_out` (32 B) | `b"Double-Ratchet-Root-Key-Expansion"` (33 B) | 64 |
@@ -182,7 +185,8 @@ is the one Signal (PQXDH and SPQR) and Apple PQ3 use.
 ```
 IKM     = DH1 || DH2 || DH3 [|| DH4] || kem_ss
 SK_root = HKDF(salt = F, IKM,
-               info = "Construct-PQXDH-RootKey-v2" || SHA-256(KEM_pub) || SHA-256(kem_ct),
+               info = "Construct-PQXDH-RootKey-v3" || SHA-256(KEM_pub) || SHA-256(kem_ct)
+                      || SHA-256(KIK_A),
                L = 32)
 ```
 
@@ -369,11 +373,14 @@ specification:
 | Hybrid identity bind prologue | `b"KonstruktHybridId-v1"` | 20 B |
 | Salt F (X3DH HKDF) | `[0xFF; 32]` | 32 B |
 | Salt for initial DR root | `[0xFE; 32]` | 32 B |
-| Info (PQXDH v2 root key, prefix) | `b"Construct-PQXDH-RootKey-v2"` | 26 B |
+| Info (PQXDH root key, prefix) | `b"Construct-PQXDH-RootKey-v3"` | 26 B |
+| Info (KEM identity seed) | `b"Construct-KEM-identity-v1"` | 25 B |
+| Info (identity answer, root / chain) | `b"Construct-KEM-identity-root-v1"` / `b"Construct-KEM-identity-chain-v1"` | 30 / 31 B |
 | Info (classical X3DH root key, non-PQ builds) | `b"Construct-X3DH-RootKey-v1"` | 25 B |
 | Kyber prekey sign-message suite byte | `0x11` | 1 B |
 | Kyber SPK maximum age (signed `created_at`) | 30 days | — |
 | PQXDH v2 flag in wire `suite_id` | `0x0100` | — |
+| KEM identity key / identity answer flags in wire `suite_id` | `0x0200` / `0x0400` | — |
 | Info (initial DR root) | `b"InitialRootKey"` | 14 B |
 | Info (Double Ratchet root step) | `b"Double-Ratchet-Root-Key-Expansion"` | 33 B |
 | Info (Double Ratchet chain step) | `b"Double-Ratchet-Chain-Key-Expansion"` | 34 B |

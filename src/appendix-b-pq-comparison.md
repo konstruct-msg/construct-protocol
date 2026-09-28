@@ -139,7 +139,29 @@ who can also break X25519 — recovers the messages of that epoch.
 Against an adversary who can break neither, or only one of the two, the
 guarantee is unchanged.
 
-## B.7 Group messaging
+## B.7 Authenticating the peer
+
+Both deployed designs authenticate the peer classically: PQXDH's
+identity keys are X25519 / XEdDSA and its specification states that
+authentication rests on the discrete-log problem; PQ3 signs with ECDSA
+P-256. The stated reasoning is the same in both — breaking
+authentication needs a quantum computer at the time of the attack, while
+confidentiality has to survive one built later.
+
+Konstruct authenticates post-quantum in both directions after the first
+contact, by two different means. The initiator encapsulates to a Kyber
+prekey signed by the responder's pinned hybrid (Ed25519 + ML-DSA-65) key,
+so only the responder can read. The responder encapsulates to the
+initiator's pinned ML-KEM-1024 identity key and mixes the secret into its
+first reply, so only the initiator can continue
+([Chapter 4 §4.4.4](./04-session-handshake.md#444-the-initiator-proves-its-kem-identity-key)).
+The second direction uses a KEM rather than a signature on purpose: a
+signature over the handshake would be a transferable proof that one
+device opened a conversation with another. Both pins are trust-on-first-use,
+and the initiator's first-flight messages are authenticated classically
+until the responder's answer is read.
+
+## B.8 Group messaging
 
 Konstruct's group path is MLS ([Chapter 12](./12-group-messaging.md)).
 Post-quantum MLS cipher suites combining ML-KEM with traditional
@@ -151,7 +173,7 @@ Matrix, for comparison, uses Olm/Megolm and has no deployed
 post-quantum layer; its published direction is migration to MLS, which
 would inherit MLS's post-quantum cipher suites when those are adopted.
 
-## B.8 Formal analysis
+## B.9 Formal analysis
 
 Signal's SPQR implementation is machine-checked with Hax and F* for
 panic-freedom and field-arithmetic correctness, with ProVerif models of
@@ -163,10 +185,11 @@ Konstruct's construction has received no formal analysis. This is
 stated as a fact about the current state of the work, not as a
 deficiency claim about the construction.
 
-## B.9 Sources
+## B.10 Sources
 
 - [Signal — Signal Protocol and Post-Quantum Ratchets](https://signal.org/blog/spqr/) (2 October 2025)
 - [signalapp/SparsePostQuantumRatchet](https://github.com/signalapp/SparsePostQuantumRatchet)
+- [Signal — The PQXDH Key Agreement Protocol](https://signal.org/docs/specifications/pqxdh/)
 - [Apple Security Research — iMessage with PQ3](https://security.apple.com/blog/imessage-pq3/) (2024)
 - [A Formal Analysis of Apple's iMessage PQ3 Protocol](https://www.usenix.org/conference/usenixsecurity25/presentation/linker), USENIX Security 2025
 - [ML-KEM and Hybrid Cipher Suites for MLS](https://www.ietf.org/archive/id/draft-mahy-mls-pq-00.html), IETF draft
