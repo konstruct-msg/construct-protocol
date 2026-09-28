@@ -64,7 +64,7 @@ they are composed, not merged.
 
 | Layer | Role | Where it lives | Status |
 |---|---|---|---|
-| **Transport** | Carry bytes; obfuscate them where a censor inspects. Two stacks — engine-QUIC/H3 for speed everywhere, veil-front HTTPS for censored networks — selected by one client-side router. | `construct-engine`, `construct-veil`, iOS `TransportRouter` | Both stacks implemented; plain QUIC and veil-front in production use. |
+| **Transport** | Carry bytes; obfuscate them where a censor inspects. Two stacks — engine-QUIC/H3 for speed everywhere, veil-front HTTPS for censored networks — selected by one client-side router. | `construct-transport`, `construct-veil`, iOS `TransportRouter` | Both stacks implemented; plain QUIC and veil-front in production use. |
 | **EntryDirectory** | Discover a live entry point the censor has not blocked, and rotate off blocked ones without user action. | client + backend (design) | Designed; not yet implemented. |
 | **RouteLayer** | One proxy hop hiding the user IP from the home server (IP-hiding, not unlinkability). | veil-front relay | The single-hop model is the accepted design; deeper anonymity (mixnet) is explicitly out of scope. |
 | **Overlay** | Address an account by a location-independent identifier so it stays reachable after it moves. | `construct-core`, backend | Identity key + `route_id` present; dual-addressing and DHT discovery planned. |

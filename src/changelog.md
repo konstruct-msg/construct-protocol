@@ -53,6 +53,11 @@ speaking v0.2; there is no compatibility path before 1.0.
   `DE-1`, found while writing this revision, was fixed in construct-core 0.20.1.
 - Open issue added: `DE-2` ([Ch. 7](./07-implementation-status.md)).
   Corrected: the test-coverage table overstated the integration tests.
+- Platform matrix ([Ch. 7 §7.2](./07-implementation-status.md#72-platform-matrix)) and
+  the introduction brought up to date: Android is a working client on the current core, not
+  Phase 0; macOS links the core directly (the `construct-engine` path was retired 2026-07-28);
+  `construct-tui` is paused and does not interoperate. Transport references point at
+  `construct-transport`.
 
 ## v0.1.0 — *unreleased*
 

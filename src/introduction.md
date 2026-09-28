@@ -74,7 +74,7 @@ public reference implementation
 |---|---|
 | Cryptographic core (X3DH, Double Ratchet, hybrid PQ KEM, Suite 3 PQ ratchet) | Implemented and used in production by the iOS TestFlight build. |
 | iOS / macOS client | Production-quality code, distributed via [TestFlight beta](https://testflight.apple.com/join/NH3WssFh). No public App Store release yet. |
-| Android client | Phase 0 — Rust core cross-compiles and UniFFI bindings exist; no shipping Kotlin product surface yet. |
+| Android client | Kotlin client on the same core release as iOS; exchanges messages with iOS on the test stand. Debug builds only — no signed release or store distribution yet; no VEIL transport yet. See [Chapter 7 §7.2](./07-implementation-status.md#72-platform-matrix). |
 | Federation (server-to-server) | **Implemented** — inbound + outbound sealed delivery, Ed25519-signed. Multi-node interoperability test outstanding. |
 | Sealed sender | **Implemented and on by default** — all in-scope outgoing user traffic (messages, receipts, call signalling, session-control handshake) is sealed and leaves no server-readable sender id in sealed delivery; identified-downgrade paths are fail-closed. Privacy Pass token *enforcement* runs in `warn` mode (not `enforce`). |
 | MLS group chat | Core implemented and documented in [Chapter 12](./12-group-messaging.md) as design / partial; no shipping product surface and not yet a full normative interop spec. |

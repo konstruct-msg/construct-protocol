@@ -35,7 +35,7 @@ reference so it can be re-verified independently.
 | Client IP minimisation | **Implemented** — the server never stores a raw client IP; anti-abuse rate-limit keys and logs use a salted one-way hash (`hash_client_ip`) of the address. Honest limit: a salted hash of the small IPv4 space is not perfectly anonymous against a salt-holder. | `construct-utils/src/lib.rs:92`; applied in `construct-user-service/src/account.rs:140`, `construct-auth-service/src/devices.rs:292` |
 | Privacy Pass token enforcement | **Warn mode** in production (`MSG_STEALTH_TOKEN_POLICY=warn`); tokens are issued, attached to sealed sends, and redemption-validated, but a failed/absent token does not block delivery. `enforce` is deferred past 1.0 (needs verifiable-VOPRF client + soak). | `construct-server/messaging-service/src/envelope.rs:188`-`:248`; `construct-core/src/crypto/privacy_pass/mod.rs:94`-`:165` |
 | Federation (S2S) | **Implemented** — inbound + outbound sealed delivery, Ed25519-signed, per-origin rate-limited. Multi-node interoperability test outstanding. | `construct-server/messaging-service/src/federation.rs:135`-`:258`, `:291`-`:360` |
-| QUIC / HTTP-3 transport | **In production** as the engine-QUIC direct path; HTTP/2 fallback remains mandatory. Release builds use plain QUIC; Salamander-style per-datagram obfuscation is forced off outside DEBUG. | `construct-ios` `Utilities/Constants.swift:414`-`:456`, `Networking/gRPC/GRPCChannelManager.swift:474`-`:535`; `construct-engine/src/transport/mod.rs:50`-`:113`, `src/transport/connection.rs:60`-`:107` |
+| QUIC / HTTP-3 transport | **In production** as the engine-QUIC direct path; HTTP/2 fallback remains mandatory. Release builds use plain QUIC; Salamander-style per-datagram obfuscation is forced off outside DEBUG. | `construct-ios` `Utilities/Constants.swift`, `Networking/gRPC/GRPCChannelManager.swift`; `construct-transport/src/client.rs` |
 | Direct P2P delivery | **Not implemented.** All traffic via server. | — |
 | Formal verification (Kani / Prusti) | **Not started.** | — |
 | External cryptographic audit | **Not performed.** | — |
@@ -46,9 +46,10 @@ reference so it can be re-verified independently.
 |---|---|---|
 | iOS device | `aarch64-apple-ios` | Production-quality code, shipped via TestFlight beta. No public App Store release. |
 | iOS simulator | `aarch64-apple-ios-sim` | Builds and tests pass. |
-| macOS | `aarch64-apple-darwin`, `x86_64-apple-darwin` | Builds and runs; mid-migration from direct `construct-core` to a `construct-engine`-mediated path. |
-| Android | `aarch64-linux-android`, `armv7-linux-androideabi`, `x86_64-linux-android` | `construct-core` cross-compiles cleanly; UniFFI bindings regenerated. No Kotlin VEIL surface yet (Phase 0). |
-| Desktop (Linux / Windows) | native | CLI tools only; no application client. |
+| macOS | `aarch64-apple-darwin`, `x86_64-apple-darwin` | The same Swift code base and the same core as iOS, linked directly through UniFFI (the `construct-engine` single-binary path was retired on 2026-07-28). The desktop GUI is frozen: it builds, but is not distributed. |
+| Android | `aarch64-linux-android`, `armv7-linux-androideabi`, `x86_64-linux-android` | Kotlin client on the same core release as iOS (currently 0.21): PQXDH v2, receiving opens from the sender certificate, DECRYPTION_ERROR, sealed sender. Exchanges messages with iOS on the test stand. Debug builds only — no signed release, no store distribution. No Google Play Services dependency by design. No VEIL transport yet. |
+| Terminal client (`construct-tui`, Linux / macOS) | native | Paused since 2026-08-25. It predates PQXDH v2 and the event-based session answers of core 0.19–0.21, so it does not interoperate with the current clients. |
+| Windows | — | No client. |
 | Web (WASM) | — | Planned, not started. |
 
 ## 7.3 Open security issues

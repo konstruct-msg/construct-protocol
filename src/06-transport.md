@@ -44,8 +44,7 @@ it through `FeatureFlags.engineQuicExperimental`, which defaults on;
 release builds use plain QUIC and force Salamander-style datagram
 obfuscation off (`construct-ios` `Utilities/Constants.swift:414`-`:456`,
 `Networking/gRPC/GRPCChannelManager.swift:474`-`:535`). The H3 path is
-implemented in `construct-engine/src/transport/mod.rs:50`-`:113` and
-`src/transport/connection.rs:60`-`:107`; it is not yet specified
+implemented in `construct-transport/src/client.rs`; it is not yet specified
 normatively in this chapter (planned for a future revision).
 
 ## 6.2 Wire format (WirePayload)

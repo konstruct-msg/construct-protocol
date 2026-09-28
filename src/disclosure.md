@@ -10,7 +10,7 @@ report will be visible only to maintainers until a fix is published.
 - [construct-ios](https://github.com/konstruct-msg/construct-ios/security/advisories/new) — iOS / macOS client
 - [construct-server](https://github.com/konstruct-msg/construct-server/security/advisories/new) — server-side
 - [construct-veil](https://github.com/konstruct-msg/construct-veil/security/advisories/new) — anti-censorship transport
-- [construct-engine](https://github.com/konstruct-msg/construct-engine/security/advisories/new) — QUIC engine
+- [construct-transport](https://github.com/konstruct-msg/construct-transport/security/advisories/new) — QUIC / HTTP-3 transport (`construct-engine` is archived)
 - [construct-protocol](https://github.com/konstruct-msg/construct-protocol/security/advisories/new) — issues with **this specification**
 
 The canonical disclosure metadata file (RFC 9116) is at
