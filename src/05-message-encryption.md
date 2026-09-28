@@ -30,9 +30,13 @@ material MUST be zeroised immediately after use.
 | `current_pq_epoch` | `u32` | 0 | Suite 3 only: completed PQ epoch mixed into outgoing message keys |
 | `pq_epoch_secrets` | bounded list | `{}` | Suite 3 only: completed ML-KEM-768 epoch secrets retained for out-of-order messages |
 | pending PQ exchange / ciphertext | optional | none | Suite 3 only: in-flight sparse PQ ratchet material |
+| handshake header | optional | Ch. 4 §4.3 Step 5 | INITIATOR only: `EK_A`, `opk_id`, `kem_ct`, `kyber_otpk_id`, repeated on every outgoing message until the peer's first reply |
 
 The reference implementation packs these into
 `SessionState` in `construct-core/src/crypto/messaging/double_ratchet/`.
+
+A device holds, per peer device, **one current state and up to three previous states**
+(§5.9). What this chapter calls "the session" is the current state unless stated otherwise.
 
 ## 5.2 KDF helpers
 
@@ -69,7 +73,7 @@ WirePayload (header, 52 bytes fixed + variable extension fields) ::=
     kyber_otpk_id       : u32  little-endian         (4 B)  -- 0 if N/A
     kem_len             : u16  little-endian         (2 B)
     prev_chain_length   : u32  little-endian         (4 B)
-    suite_id            : u16  little-endian         (2 B)
+    suite_id            : u16  little-endian         (2 B)  -- bit 0x0100 = PQXDH v2 header
     -- followed by kem_ct (kem_len bytes; absent when kem_len = 0)
     -- followed by Suite 3 PQ section when suite_id = 0x0003
     -- followed by AEAD framing (nonce || ciphertext || tag)
@@ -77,8 +81,13 @@ WirePayload (header, 52 bytes fixed + variable extension fields) ::=
 
 `HEADER_SIZE = 52` bytes is fixed by the reference (sum of the field
 sizes above, `construct-core/src/wire_payload.rs:22`-`:36`). The
-variable KEM ciphertext follows the header when `kem_len > 0`; for
-Suite 2 first messages the reference value is 1088 bytes. The
+variable KEM ciphertext follows the header when `kem_len > 0`: it is the
+PQXDH v2 handshake header (Ch. 4 §4.3 Step 5), 1568 bytes of ML-KEM-1024
+ciphertext, present on every message of the initiator's first flight and
+absent afterwards. A frame that carries it sets bit `0x0100` of `suite_id`
+(`PQXDH_V2_FLAG`, `wire_payload.rs:36`); `unpack` strips the bit, so the
+suite the AEAD authenticates is the low byte. A KEM ciphertext on a frame
+is exactly what makes it able to open a session (§4.4.1). The
 pack/unpack routines are `wire_payload::pack` /
 `wire_payload::unpack`; deviating from the ordering or endianness
 produces non-interoperable frames.
@@ -328,25 +337,121 @@ Skipped message keys (`MKSKIPPED`) MUST be expired:
 - By DH ratchet: keys belonging to a chain older than `state.DHr − 2`
   ratchet steps SHOULD be evicted.
 
-## 5.9 Self-healing (END_SESSION fallback)
+## 5.9 Previous states
 
-If decryption of the **first message of a session** (message_number =
-0, dh_ratchet step 0) fails, the receiver MAY trigger session healing
-before falling back to a full handshake. The healing protocol is
-out of scope of this chapter; see
-`construct-core/src/orchestration/healing_queue.rs` for the reference
-implementation. Constraints:
+A session renews by sending: any message carrying the handshake header opens a new state (§4.4.1),
+and a device may open one at any time. So that nothing in flight on the old state is lost, the
+replaced state is **kept**, not dropped
+(`construct-core/src/orchestration/session_lifecycle.rs`).
 
-- Healing MUST be attempted at most 3 times per contact per 24-hour
-  window.
-- A successful healing MUST result in a session that satisfies all
-  the security properties of a freshly negotiated session (forward
-  secrecy, post-compromise security).
-- If healing exhausts its retry budget, the receiver MUST send an
-  `END_SESSION` control message and fall through to a full X3DH/PQXDH
-  handshake from §4.
+| Constant | Value | Source |
+|---|---|---|
+| `MAX_PREVIOUS_STATES` | 3 per peer device, oldest dropped first | `session_lifecycle.rs:31` |
+| `PREVIOUS_STATE_TTL_SECONDS` | 604800 (7 days) from the moment it was replaced | `session_lifecycle.rs:39` |
 
-## 5.10 Security properties (informal)
+Receiving:
+
+```
+Decrypt(record, msg):
+    1. try the current state
+    2. on failure, try each previous state, newest first
+         -- a "message key already used" error from any state is a duplicate: stop, report it
+    3. a previous state that decrypts is PROMOTED: it becomes current, and the current one
+       becomes the newest previous state — unless it is held back (below)
+    4. nothing decrypts:
+         carries the handshake header → open a new state from it (§4.4)
+         carries none                 → DECRYPTION_ERROR to the writer (§5.10)
+```
+
+Every replacement — a receiving open, our own reopen, a promotion — makes the replaced state the
+newest previous one. A state leaves the record only by the count or age bound. The bounds are a
+compromise: a kept state is chain keys kept, and until it is dropped a compromise of the device
+also exposes what is still in flight on it. Signal keeps forty states with no age bound.
+
+A state is **held back** when it was retired because the peer said it cannot read it (§5.10). A
+held-back state still decrypts what arrives on it but is never promoted: our next message on it
+would fail the same way, so the next send opens a new state instead.
+
+Two devices that open at the same time (§4.5) each end up with both states; the first message
+either side reads promotes one, and the other ages out.
+
+## 5.10 DECRYPTION_ERROR
+
+When nothing held decrypts a message and it carries no handshake header, the receiver tells the
+writer. There is no END_SESSION, heal or session-reset message: the error names the **state** the
+unread message was written on, so the writer can act on exactly that state and a stale error
+does nothing.
+
+> **Changed 2026-09-28.** Until then the receiver sent END_SESSION (content type 21), which named
+> no state, and both sides rationed it with time windows, cooldowns and retry budgets because a
+> redelivered or reordered one could not be told from a live one. Type 21 is retired; a receiver
+> acknowledges and ignores it.
+
+### 5.10.1 Payload
+
+Content type 28 (`CONTENT_TYPE_DECRYPTION_ERROR`). Plaintext, fixed length 131 bytes
+(`construct-core/src/orchestration/decryption_error.rs`):
+
+```
+version      : u8 = 1
+hint         : u8           -- 0 none, 1 PrekeyUnavailable; unknown values read as none
+ratchet_key  : [u8; 32]     -- the DH ratchet key in the unread message's header
+id_len       : u8           -- ≤ 96
+message_id   : [u8; id_len] -- the unread message, as the receiver saw it
+zero padding to 131 bytes
+```
+
+The plaintext is sealed to the writer's X25519 identity key — the key its sender certificate
+named — with the sealed-box construction of §8, under the domain salt
+`b"ConstructDECRYPTERR-v1"`, distinct from the sender-certificate box so that neither box can be
+passed off as the other. The sealed box is 191 bytes whatever the id length. It cannot be
+ratchet-encrypted: the ratchet is what failed. It travels as a sealed envelope whose inner
+content type is 28, the one type an outer `SealedInner` may name (§8).
+
+An unsealed message carries no certificate, so no error can be addressed for it; none is sent.
+
+### 5.10.2 Writer
+
+On receiving an error, the writer opens it with its identity secret and compares `ratchet_key`
+with its own sending keys for that peer device:
+
+| `ratchet_key` is the sending key of… | Writer does |
+|---|---|
+| the **current** state | retire it (it becomes a held-back previous state, §5.9); the next message opens a new state. With hint `PrekeyUnavailable`, that open uses no one-time prekey. Then resend `message_id` once. |
+| a **previous** state | resend `message_id` once; the state was already replaced |
+| **none** held | nothing — the error is stale (redelivered, reordered, or about a state long gone) |
+
+A message is resent at most once per error it is named in. The resend is an ordinary message on
+the new state, so it carries the handshake header and the receiver opens from it.
+
+### 5.10.3 Receiver
+
+The receiver sends one error per unread message and marks the message processed only once the
+error was built, so a redelivery is a duplicate and produces no second error.
+
+Which certificate the error is sealed to differs by path in the reference implementation:
+
+- a failed **receiving open** (§4.4) answers only a writer whose certificate passes
+  `identity_for_opening` and whose key derives to the device the message was queued under
+  (`orchestrator.rs:876`-`:883`);
+- a message that fails on a **held** state is answered to the identity key its certificate
+  names, without checking the certificate's server signature (`message_router.rs:392`-`:395`).
+
+The second path is open issue `DE-1` (Chapter 7): an envelope with an unsigned certificate makes
+the receiver send a 191-byte error, addressed to the device the envelope claimed and sealed to
+a key that device does not hold. The claimed device cannot open it and discards it
+(`DECRYPTION_ERROR_UNREADABLE`); nothing is retired or resent. The intended behaviour is the
+first path's check on both. When a receiving open fails because the named OPK or Kyber prekey is gone (§4.4.3), the
+error carries `PrekeyUnavailable`.
+
+What the relay learns: both shipping clients send the error on the authenticated `SendMessage`
+path with the payload inside `SealedInner` — the same path END_SESSION used — so the relay learns
+that this account sent that account a control envelope, as it did for END_SESSION. It no longer
+sees a 1024-byte pad whose size identified the kind; the error box has a fixed 191-byte size.
+Moving session control to the unauthenticated `SendSealedMessage` path is part of the open item
+on sealed control traffic (Chapter 7).
+
+## 5.11 Security properties (informal)
 
 The Double Ratchet, applied as above, provides:
 
@@ -368,12 +473,14 @@ specification. The reference implementation is intended to be amenable
 to formal verification (Kani / Prusti); that work is planned but not
 done.
 
-## 5.11 References
+## 5.12 References
 
 - Specification: this chapter.
 - Reference implementation:
   - `construct-core/src/crypto/messaging/double_ratchet/`
   - `construct-core/src/wire_payload.rs`
+  - `construct-core/src/orchestration/session_lifecycle.rs` (previous states)
+  - `construct-core/src/orchestration/decryption_error.rs`
   - `construct-core/src/traffic_protection/padding.rs`
 - Original design: Perrin & Marlinspike, *The Double Ratchet Algorithm*,
   <https://signal.org/docs/specifications/doubleratchet/>.

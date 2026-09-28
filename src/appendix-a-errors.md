@@ -71,7 +71,7 @@ Defined in `construct-core/src/uniffi_bindings.rs:30`.
 | `FFI-SESSION-NOT-FOUND` | `SessionNotFound` | An operation referenced a session id that no session exists for in local state. | Trigger a fresh `init_session` for the peer. |
 | `FFI-SESSION-INIT` | `SessionInitializationFailed { message }` | X3DH / PQXDH handshake construction failed. Wraps a deeper `error::CryptoError`. | Surface and retry after fetching a fresh prekey bundle. |
 | `FFI-ENCRYPT` | `EncryptionFailed { message }` | `RatchetEncrypt` failed. Most commonly: session state corruption or AEAD allocation failure. | Surface; do not silently fall back. |
-| `FFI-DECRYPT` | `DecryptionFailed { message }` | `RatchetDecrypt` failed. Most commonly: bad AD, replayed message, skipped-key cache exhausted, or tampered ciphertext. | Apply healing flow (`init_receiving_session` retry) if `msg_num == 0`; otherwise END_SESSION. |
+| `FFI-DECRYPT` | `DecryptionFailed { message }` | `RatchetDecrypt` failed. Most commonly: bad AD, replayed message, skipped-key cache exhausted, or tampered ciphertext. | Handled by the core, not the caller: the other held states are tried, a frame carrying the handshake header opens a new state, and otherwise a DECRYPTION_ERROR goes to the writer (Chapter 5 §5.9–§5.10). There is no heal and no END_SESSION. |
 | `FFI-INVALID-KEY` | `InvalidKeyData` | A key field had the wrong length or failed point validation. | Reject the message / bundle. |
 | `FFI-INVALID-CT` | `InvalidCiphertext` | A KEM ciphertext or AEAD frame failed structural validation. | Reject the message. |
 | `FFI-SERIALIZE` | `SerializationFailed` | A MessagePack encode failed for an outbound CFE payload. | Surface as internal error. |
@@ -82,6 +82,20 @@ Defined in `construct-core/src/uniffi_bindings.rs:30`.
 applications MUST react to: it conveys the `age_secs` so that UI can
 report "peer hasn't been online for N days" without re-deriving the
 threshold.
+
+### A.2.1 Session refusal prefixes
+
+Session-level refusals travel inside the `message` of
+`SessionInitializationFailed` or as the `code` of a `NotifyError` action.
+Clients branch on the prefix, which is stable; the text after it is not.
+
+| Prefix / code | Raised when | Required handling |
+|---|---|---|
+| `PQ_REQUIRED` | The bundle yields no Kyber prekey the core can trust — any `PqxdhRefusal` (Chapter 4 §4.3). | No session. Do not retry classically; there is no classical path. A held state, if any, is left as it was. |
+| `PQ_DOWNGRADE_REFUSED` | The device advertised or used the Suite 3 PQ ratchet before and this bundle does not advertise it. | No session. Treat as tampering, not as a transition. |
+| `SENDER_CERTIFICATE_REFUSED` / `SENDER_DEVICE_MISMATCH` | A sender certificate failed `identity_for_opening` (bad signature, key does not derive to the named device, expired past the delivery window), or names another device than the one the message was queued under. | Do not open from it. `NoTrustedKey` is transient: the open is retried once the server key is held. |
+| `DECRYPTION_ERROR_UNREADABLE` | A received DECRYPTION_ERROR could not be opened with our identity key, or is malformed. | Nothing — no state is retired and nothing is resent. |
+| `decrypt_failed` | A message could not be read by any held state and carried no handshake header. | The core has already produced the DECRYPTION_ERROR (Chapter 5 §5.10) when the message allowed one; the platform only sends it. |
 
 ## A.3 CFE envelope errors — `CfeError`
 
@@ -162,8 +176,8 @@ uniffi_bindings::CryptoError`).
 | `KeyGenerationError(String)` | RNG failure, dalek keypair generation rejected. |
 | `SigningError(String)` | Ed25519 sign failed (typically wraps `ed25519_dalek::SignatureError`). |
 | `SignatureVerificationError(String)` | Ed25519 verification failed. Includes the SPK signature check. |
-| `KemEncapsulationError(String)` | ML-KEM-768 `Encapsulate` failed. |
-| `KemDecapsulationError(String)` | ML-KEM-768 `Decapsulate` failed (malformed ciphertext or wrong key). |
+| `KemEncapsulationError(String)` | ML-KEM `Encapsulate` failed (ML-KEM-1024 at the handshake, ML-KEM-768 in Suite 3). |
+| `KemDecapsulationError(String)` | ML-KEM `Decapsulate` failed (malformed ciphertext or wrong key). |
 | `AeadEncryptionError(String)` | ChaCha20-Poly1305 seal failed (typically allocation). |
 | `AeadDecryptionError(String)` | ChaCha20-Poly1305 open failed — tag mismatch, wrong AD, wrong key. |
 | `KeyDerivationError(String)` | HKDF / HMAC-SHA-256 step failed (rare; usually IKM-length validation). |

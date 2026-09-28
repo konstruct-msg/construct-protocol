@@ -4,9 +4,11 @@ This chapter enumerates every cryptographic primitive that an
 interoperable Konstruct implementation MUST use, with concrete
 parameters, byte sizes, and crate-level references to the verified
 reference implementation. Three core suite identifiers are currently
-accepted by `construct-core`: Suite 1 (classical), Suite 2 (PQXDH
-hybrid KEM + optional hybrid signatures), and Suite 3 (sparse
-continuous ML-KEM-768 ratchet).
+accepted by `construct-core`: Suite 1 (classical ratchet), Suite 2
+(hybrid Ed25519 + ML-DSA-65 signatures), and Suite 3 (sparse continuous
+ML-KEM-768 ratchet). Independently of the suite, every session opens with
+PQXDH v2 — ML-KEM-1024 in the initial root key — and a session is not
+created without it (§2.3, Chapter 4).
 
 Keywords MUST, MUST NOT, SHOULD, MAY are per
 [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
@@ -20,7 +22,7 @@ session.
 | Identifier | Value | Description |
 |---|---|---|
 | `SUITE_CLASSIC_V1` | `0x0001` | X25519 + Ed25519 + ChaCha20-Poly1305 + HKDF-SHA256 |
-| `SUITE_PQ_HYBRID_V1` | `0x0002` | Suite 1 + deferred ML-KEM-768 (Kyber-768) PQXDH contribution + optional hybrid signatures |
+| `SUITE_PQ_HYBRID_V1` | `0x0002` | Suite 1 + hybrid Ed25519 + ML-DSA-65 signatures |
 | `SUITE_PQ_RATCHET_V1` | `0x0003` | Suite 1 + sparse continuous ML-KEM-768 ratchet mixed at the message-key layer |
 
 The suite identifier appears in the WirePayload header
@@ -61,7 +63,7 @@ The accepted IDs are defined in `construct-core/src/crypto/suite_id.rs:22`-`:33`
 - An interoperable signer MUST sign the same canonical encoding of the
   signed artefact. Signed artefacts in this specification are:
   - X25519 signed prekey: `Ed25519_Sign(SK_priv, b"KonstruktX3DH-v1" || [0x00, 0x01] || SPK_pub)`.
-  - ML-KEM-768 signed prekey: `Ed25519_Sign(SK_priv, b"KonstruktX3DH-v1" || [0x00, 0x10] || KEM_pub)`.
+  - ML-KEM-1024 prekey, signed and one-time alike: `Ed25519_Sign(SK_priv, b"KonstruktX3DH-v1" || [0x00, 0x11] || created_at (u64 BE) || KEM_pub)`, and the same message under the hybrid key. The v1 message (`0x10`, a 768-bit key, no time) is retired and MUST NOT verify as v2.
   - Hybrid identity binding: `Ed25519_Sign(SK_priv, b"KonstruktHybridId-v1" || hybrid_identity_key)`.
 
 `spk_rotation_epoch` is a freshness/replay field carried beside the
@@ -107,11 +109,11 @@ AES-256-GCM key). AES-256-GCM here rides Apple/hardware-accelerated
 
 | Use | `salt` | `IKM` | `info` | `L` |
 |---|---|---|---|---|
-| X3DH root key (Ch. 4 §4.3) | `[0xFF; 32]` | `DH_combined` | `b"Construct-X3DH-RootKey-v1"` (25 B) | 32 |
+| PQXDH v2 root key (Ch. 4 §4.3) | `[0xFF; 32]` | `DH_combined \|\| kem_ss` | `b"Construct-PQXDH-RootKey-v2"` (26 B) `\|\| SHA-256(KEM_pub) \|\| SHA-256(kem_ct)` | 32 |
+| Classical X3DH root key (builds without `post-quantum` only) | `[0xFF; 32]` | `DH_combined` | `b"Construct-X3DH-RootKey-v1"` (25 B) | 32 |
 | Initial Double Ratchet root normalisation | `[0xFE; 32]` | X3DH root key | `b"InitialRootKey"` (14 B) | 32 |
 | Double Ratchet root step (Ch. 5 §5.2) | `RK` | `dh_out` (32 B) | `b"Double-Ratchet-Root-Key-Expansion"` (33 B) | 64 |
 | Double Ratchet chain step (Ch. 5 §5.2) | `CK` | empty string | `b"Double-Ratchet-Chain-Key-Expansion"` (34 B) | 64 |
-| PQ contribution at RK₁ (Ch. 4 §4.5) | `RK₁` | `kem_ss` (32 B) | `b"construct-pqxdh-v1"` (18 B) | 32 |
 | Suite 3 PQ message-key mix | `pq_epoch_secret` | Double Ratchet message key | `b"construct-pqr-msg-v1"` (20 B) | 32 |
 | Suite 3 EK hash | empty string | ML-KEM-768 encapsulation key | `b"construct-pqr-ekhash-v1"` (23 B) | 8 |
 
@@ -119,7 +121,8 @@ The Double Ratchet root and chain KDFs are implemented in
 `construct-core/src/crypto/suites/classic.rs:233`-`:257` and mirrored
 by the hybrid provider. The initial root normalisation is in
 `construct-core/src/crypto/messaging/double_ratchet/messaging.rs:54`-`:59`.
-The PQXDH and Suite 3 HKDF calls are in
+The PQXDH v2 root key is `construct-core/src/crypto/handshake/x3dh.rs:162`-`:185`.
+The Suite 3 HKDF calls are in
 `construct-core/src/crypto/messaging/double_ratchet/internals.rs:62`-`:99`
 and `:280`-`:438`.
 
@@ -148,60 +151,54 @@ and `:280`-`:438`.
   the client returns a nonce whose Argon2id hash satisfies a
   difficulty target.
 
-## 2.3 Suite 2 — Post-quantum extension (opt-in)
+## 2.3 Post-quantum key agreement (PQXDH v2, mandatory)
 
-Suite 2 inherits all of Suite 1, and adds a hybrid post-quantum KEM
-whose shared secret is mixed into the root key after the first DH
-ratchet step (the "deferred" application; see
-[Chapter 4 §4.5](./04-session-handshake.md#45-pqxdh-suite-2--post-quantum-extension)).
+Every session's initial root key includes an ML-KEM-1024 shared secret
+([Chapter 4 §4.3](./04-session-handshake.md#43-initiator-path)). This is
+not a suite: it applies to Suites 1, 2 and 3 alike, and there is no
+classical-only way to open a session with a shipping client.
 
-### 2.3.1 ML-KEM-768 (Kyber-768)
+> **Changed 2026-09-25.** Earlier revisions specified PQXDH v1: an
+> ML-KEM-768 secret mixed into the root key *after* the first DH ratchet
+> step (`info = "construct-pqxdh-v1"`), which left the first chain of every
+> session classical only, and made PQ optional. v1 is removed without a
+> compatibility path.
 
-- Algorithm: ML-KEM-768 per [NIST FIPS 203](https://csrc.nist.gov/pubs/fips/203/final).
-- Crate: `ml-kem 0.3.0` (feature-gated as `post-quantum`).
-- Encapsulation key size: **1184 bytes**.
-- Ciphertext size: **1088 bytes**.
-- Decapsulation (secret) key size: **2400 bytes** (expanded form, as
-  exposed by `ExpandedKeyEncoding` in the `ml-kem` crate). The
-  reference exports the expanded form because re-derivation from a
-  32-byte seed adds runtime cost; both are equivalent at the protocol
-  level.
-- Shared secret size: **32 bytes**.
-- Operations:
-  - `(ek, dk) = MlKem768::Generate()`
-  - `(ct, ss) = MlKem768::Encapsulate(ek)`
-  - `ss = MlKem768::Decapsulate(dk, ct)`
-- Implementations MUST use the FIPS-203 final variant, not the
-  earlier `Kyber-768-R3` draft variant. The reference crate
-  `ml-kem 0.3.0` implements FIPS 203 final.
+### 2.3.1 ML-KEM-1024 (prekeys and the first message)
+
+- Algorithm: ML-KEM-1024 per [NIST FIPS 203](https://csrc.nist.gov/pubs/fips/203/final).
+- Crate: `ml-kem` (feature `post-quantum`, which every platform build enables).
+- Encapsulation key: **1568 bytes**. Ciphertext: **1568 bytes**. Shared secret: **32 bytes**.
+- Secret keys are generated and kept by the core as 64-byte seeds
+  (`MLKEM_SEED_SIZE`, `construct-core/src/crypto/pq_x3dh.rs:151`-`:155`).
+- Implementations MUST use the FIPS 203 final variant.
+
+ML-KEM-768 (1184-byte key, 1088-byte ciphertext) is used only in the
+Suite 3 ratchet (§2.4). The split — 1024 for prekeys, 768 in the ratchet —
+is the one Signal (PQXDH and SPQR) and Apple PQ3 use.
 
 ### 2.3.2 Hybrid design
 
-The combined session security is determined by:
-
 ```
-SK_root = HKDF(salt = F, IKM = DH_combined,
-               info = "Construct-X3DH-RootKey-v1", L = 32)
-RK₁     = (root after first DH ratchet step)
-RK₁'    = HKDF(salt = RK₁, IKM = kem_ss,
-               info = "construct-pqxdh-v1", L = 32)
+IKM     = DH1 || DH2 || DH3 [|| DH4] || kem_ss
+SK_root = HKDF(salt = F, IKM,
+               info = "Construct-PQXDH-RootKey-v2" || SHA-256(KEM_pub) || SHA-256(kem_ct),
+               L = 32)
 ```
 
-Because RK₁' depends on both `DH_combined` (classical) and `kem_ss`
-(post-quantum), an adversary MUST break **both** components to recover
-plaintext. Breaking only X25519 leaves `kem_ss` as a 32-byte
-unknown input to the KDF; breaking only ML-KEM-768 leaves
-`DH_combined` similarly. This is the standard hybrid-security argument
-and the reason Suite 2 is constructed as KEM **alongside** rather than
-**instead of** classical X3DH.
+Because `SK_root` depends on both the DH outputs (classical) and
+`kem_ss` (post-quantum), an adversary must break **both** to recover any
+message, including the first. Breaking only X25519 leaves `kem_ss` as a
+32-byte unknown input; breaking only ML-KEM leaves the DH outputs. The
+Kyber key and ciphertext are bound through `info`, so the construction
+does not rely on which binding properties a particular KEM has.
 
-### 2.3.3 Signatures in Suite 2
+### 2.3.3 Hybrid signatures
 
-Suite 2 keeps Ed25519 signatures as the mandatory classical
-authentication path and adds optional, capability-gated hybrid
-signatures using **ML-DSA-65 (Dilithium-3)** per NIST FIPS 204.
-Hybrid signatures do not replace Ed25519 in the current wire format;
-they are an additional attestation over the same prekey sign-message.
+Ed25519 stays the classical authentication path, and every Kyber prekey
+additionally carries a hybrid signature using **ML-DSA-65 (Dilithium-3)**
+per NIST FIPS 204. Hybrid signatures do not replace Ed25519 in the
+wire format; they are a second attestation over the same sign-message.
 
 The hybrid signature public key format is:
 
@@ -216,20 +213,25 @@ The stored hybrid signing secret is
 its existing Ed25519 identity with
 `Ed25519("KonstruktHybridId-v1" || hybrid_identity_key)`. Prekey-level
 hybrid signatures cover
-`"KonstruktX3DH-v1" || [0x00, suite_id] || public_key`, where
-`suite_id = 0x01` for the X25519 SPK and `suite_id = 0x10` for the
-ML-KEM-768 SPK. Reference sizes and verification behaviour:
+`"KonstruktX3DH-v1" || [0x00, 0x01] || SPK_pub` for the X25519 SPK and
+`"KonstruktX3DH-v1" || [0x00, 0x11] || created_at || KEM_pub` for every
+ML-KEM-1024 prekey. Reference sizes and verification behaviour:
 `construct-core/src/crypto/suites/hybrid.rs:1`-`:51`,
 `construct-server/shared/proto/services/key_service.proto:248`-`:270`,
 and `construct-ios` `Security/HybridBundleVerifier.swift:34`-`:120`.
 
-If a bundle lacks hybrid fields, a conforming client MUST continue to
-accept the Ed25519-only path. If the hybrid identity cross-signature
-is present and invalid, the bundle MUST be rejected. If the hybrid
-identity is authentic but a prekey-level hybrid signature is missing
-or invalid, the reference client degrades to the classical Ed25519
-attestation path instead of hard-failing reachability
-(`HybridBundleVerifier.swift:72`-`:109`).
+For opening a session, the hybrid fields are **required**
+(`construct-core/src/orchestration/pq_prekey_plan.rs`): a bundle without
+the hybrid identity key, with an invalid cross-signature, or with a Kyber
+prekey whose Ed25519 or hybrid signature is missing or invalid is refused,
+and no session is created. The fingerprint of the hybrid identity key is
+pinned per device; a changed one is refused (`HybridIdentityChanged`).
+Until 2026-09-24 no receiving side checked Kyber signatures at all, and a
+substituted Kyber key would have received the ML-KEM secret of every
+session opened to that device while every indicator said "PQ".
+
+The hybrid key's own trust root is still its Ed25519 cross-signature; the
+identity and addressing layer is not post-quantum (Chapter 7).
 
 ## 2.4 Suite 3 — Sparse continuous PQ ratchet
 
@@ -367,11 +369,14 @@ specification:
 | Hybrid identity bind prologue | `b"KonstruktHybridId-v1"` | 20 B |
 | Salt F (X3DH HKDF) | `[0xFF; 32]` | 32 B |
 | Salt for initial DR root | `[0xFE; 32]` | 32 B |
-| Info (X3DH root key) | `b"Construct-X3DH-RootKey-v1"` | 25 B |
+| Info (PQXDH v2 root key, prefix) | `b"Construct-PQXDH-RootKey-v2"` | 26 B |
+| Info (classical X3DH root key, non-PQ builds) | `b"Construct-X3DH-RootKey-v1"` | 25 B |
+| Kyber prekey sign-message suite byte | `0x11` | 1 B |
+| Kyber SPK maximum age (signed `created_at`) | 30 days | — |
+| PQXDH v2 flag in wire `suite_id` | `0x0100` | — |
 | Info (initial DR root) | `b"InitialRootKey"` | 14 B |
 | Info (Double Ratchet root step) | `b"Double-Ratchet-Root-Key-Expansion"` | 33 B |
 | Info (Double Ratchet chain step) | `b"Double-Ratchet-Chain-Key-Expansion"` | 34 B |
-| Info (PQXDH contribution) | `b"construct-pqxdh-v1"` | 18 B |
 | Info (Suite 3 message-key mix) | `b"construct-pqr-msg-v1"` | 20 B |
 | Info (Suite 3 EK hash) | `b"construct-pqr-ekhash-v1"` | 23 B |
 | Suite 1 ID | `0x0001` | 2 B (`u16`; LE in WirePayload, BE inside X3DH prologue) |
@@ -379,9 +384,11 @@ specification:
 | Suite 3 ID | `0x0003` | 2 B (`u16`; LE in WirePayload) |
 | Suite 3 rekey cadence | 16 ratchet turns (clamped `[4, 64]`) | — |
 | Suite 3 retained epoch secrets | 4 | — |
-| ML-KEM-768 encapsulation key | 1184 | B |
-| ML-KEM-768 ciphertext | 1088 | B |
-| ML-KEM-768 shared secret | 32 | B |
+| ML-KEM-1024 encapsulation key (prekeys) | 1568 | B |
+| ML-KEM-1024 ciphertext (first flight) | 1568 | B |
+| ML-KEM-768 encapsulation key (Suite 3 only) | 1184 | B |
+| ML-KEM-768 ciphertext (Suite 3 only) | 1088 | B |
+| ML-KEM shared secret | 32 | B |
 | Argon2id version | `V0x13` | — |
 | CFE magic | `[0x43, 0x46]` ("CF") | 2 B |
 | CFE version | `0x01` | 1 B |

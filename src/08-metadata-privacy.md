@@ -66,9 +66,13 @@ New normal sealed sends leave `content_type` at `UNSPECIFIED = 0`,
 which proto3 omits from the wire. The real application content type
 rides inside the encrypted payload, currently as KNST byte 5 on framed
 payloads. The client constrains this boundary with `SealedEnvelopeType`:
-`.generic` serialises to no content type, while only the two structural
-exceptions `SESSION_RESET` (21) and `SESSION_RESET_INIT` (24) may be
-declared before decryption
+`.generic` serialises to no content type, and the one structural
+exception is `DECRYPTION_ERROR` (28): it answers a message the ratchet
+could not read, so it cannot be encrypted with that ratchet. Until
+2026-09-27/28 the exceptions were `SESSION_RESET` (21) and
+`SESSION_RESET_INIT` (24); nothing sends either now. (The iOS enum still
+carries a `.sessionResetInit` case with no sender; it is scheduled for
+removal.)
 (`construct-ios` `Services/Messaging/ContentTypeRouting.swift:39`-`:82`,
 `:171`-`:197`; `Security/StealthSenderService.swift:393`-`:415`).
 
@@ -169,12 +173,14 @@ Traffic **in scope** (sealed):
 - End-to-end delivery receipts — otherwise sender↔recipient timing
   correlation leaks even when bodies are sealed.
 - Call signalling (SDP / ICE — see [Transport](./06-transport.md)).
-- The **session-control handshake**: `session_ready`, the tie-break ping,
-  `SESSION_RESET_INIT`, and `END_SESSION`. With all user traffic sealed,
-  these directed control messages were the primary remaining cleartext
-  `sender → recipient` signal, so they are sealed too (client
-  `Services/Session/SessionCoordinator.swift` `sendSessionControlCore`,
-  `MessagingServiceClient.swift` `sendEndSession`).
+- **Session control**: since 2026-09-28 the only session-control message
+  is the DECRYPTION_ERROR (Chapter 5 §5.10) — the handshake pings,
+  `session_ready`, `SESSION_RESET_INIT` and `END_SESSION` are gone from the
+  protocol. With all user traffic sealed, directed control messages were
+  the primary remaining cleartext `sender → recipient` signal, so the error
+  is sealed too, with a fixed 191-byte box (client
+  `MessagingServiceClient.swift` `sendDecryptionError`). It still travels on
+  the authenticated path, so the relay sees the sending account.
 
 Traffic **deliberately excluded** (identified, by decision — the leak is
 low-value or the frequency/cost is high):

@@ -8,7 +8,7 @@ repository whose code is affected:
 
 | Issue area | Repository | Report here |
 |---|---|---|
-| Crypto core (X3DH, Double Ratchet, PQXDH, key derivation, ML-KEM-768) | construct-core | [Open advisory](https://github.com/konstruct-msg/construct-core/security/advisories/new) |
+| Crypto core (X3DH, Double Ratchet, PQXDH, key derivation, ML-KEM-1024 / ML-KEM-768) | construct-core | [Open advisory](https://github.com/konstruct-msg/construct-core/security/advisories/new) |
 | iOS / macOS client | construct-ios | [Open advisory](https://github.com/konstruct-msg/construct-ios/security/advisories/new) |
 | Server-side (message routing, auth, federation) | construct-server | [Open advisory](https://github.com/konstruct-msg/construct-server/security/advisories/new) |
 | VEIL anti-censorship transport (obfs4, WebTunnel, veil-front) | construct-veil | [Open advisory](https://github.com/konstruct-msg/construct-veil/security/advisories/new) |

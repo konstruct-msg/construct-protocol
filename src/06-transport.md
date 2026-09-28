@@ -60,11 +60,11 @@ Restated for completeness:
 | message_number | u32 LE | 4 B | Double Ratchet sending counter `Ns` |
 | dh_public_key | bytes | 32 B | Current sending DH public (`DHs.pub`) |
 | otpk_id | u32 LE | 4 B | OPK id consumed by the X3DH initiator; `0` if N/A |
-| kyber_otpk_id | u32 LE | 4 B | ML-KEM-768 OPK id consumed; `0` if N/A |
+| kyber_otpk_id | u32 LE | 4 B | ML-KEM-1024 one-time prekey id consumed; `0` = the KEM-SPK was used |
 | kem_len | u16 LE | 2 B | Length of the KEM ciphertext that follows; `0` when absent |
 | prev_chain_length | u32 LE | 4 B | Previous-chain length `PN` |
-| suite_id | u16 LE | 2 B | `0x0001` Suite 1, `0x0002` Suite 2, or `0x0003` Suite 3 |
-| kem_ct | bytes | `kem_len` B | ML-KEM-768 ciphertext for PQXDH first messages (1088 B when present) |
+| suite_id | u16 LE | 2 B | `0x0001` Suite 1, `0x0002` Suite 2, or `0x0003` Suite 3; bit `0x0100` set on a frame carrying the PQXDH v2 header |
+| kem_ct | bytes | `kem_len` B | ML-KEM-1024 ciphertext, 1568 B, on every message of the initiator's first flight (the handshake header) |
 | suite3_pq_section | bytes | variable | Present only when `suite_id = 0x0003`; see §5.3 |
 | aead_frame | bytes | variable | `nonce(12) || ct(N) || tag(16)` |
 

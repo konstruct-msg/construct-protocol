@@ -42,14 +42,15 @@ the reference uses `rand::rngs::OsRng`.
 | Signing key (SK) | Ed25519 | Permanent | 32 B / 32 B | Signs prekey bundles |
 | Signed prekey (SPK) | X25519 | Rotate weekly; clean peer acceptance ≤ 30 days | 32 B / 32 B | Medium-term, rotated periodically |
 | One-time prekeys (OPK) | X25519 | Single use | 32 B / 32 B | Consumed on first message |
-| ML-KEM-768 signed prekey (KEM-SPK; legacy proto name `kyber_pre_key`) | ML-KEM-768 | Rotate weekly; clean peer acceptance ≤ 30 days | 1184 B / 2400 B | Post-quantum medium-term (Suite 2) |
-| ML-KEM-768 one-time prekeys (KEM-OPK; legacy proto name `kyber_one_time_pre_key`) | ML-KEM-768 | Single use | 1184 B / 2400 B | Post-quantum, consumed on use |
-| Hybrid signature identity key | Ed25519 + ML-DSA-65 | Permanent, optional | 1984 B / 2016 B | PQ attestation key bound to the device signing key |
+| ML-KEM-1024 signed prekey (KEM-SPK; proto name `kyber_pre_key`) | ML-KEM-1024 | Rotate periodically; refused by peers when its signed `created_at` is > 30 days old | 1568 B / 64 B seed | Post-quantum part of every handshake |
+| ML-KEM-1024 one-time prekeys (KEM-OPK; proto name `kyber_one_time_pre_key`) | ML-KEM-1024 | Single use | 1568 B / 64 B seed | Post-quantum, consumed on use |
+| Hybrid signature identity key | Ed25519 + ML-DSA-65 | Permanent; required to be opened to | 1984 B / 2016 B | PQ attestation key bound to the device signing key |
 
 The X25519 and Ed25519 sizes are fixed by the underlying curves
-(Curve25519, Edwards25519). The ML-KEM-768 sizes are fixed by NIST
-FIPS 203 (public key 1184 bytes, ciphertext 1088 bytes, secret key
-2400 bytes in expanded form as exposed by the `ml-kem` crate). The
+(Curve25519, Edwards25519). The ML-KEM-1024 sizes are fixed by NIST
+FIPS 203 (public key 1568 bytes, ciphertext 1568 bytes); the core keeps
+the secret as the 64-byte seed it was generated from. ML-KEM-768 appears
+only in the Suite 3 ratchet, never as a published prekey. The
 hybrid signature sizes come from the implemented Ed25519 + ML-DSA-65
 format in `construct-core/src/crypto/suites/hybrid.rs:1`-`:51`.
 
@@ -83,8 +84,8 @@ artefact, verified with `ed25519_dalek::VerifyingKey::verify`.
 ## 3.4 Device identifier
 
 `device_id` is the stable device key identifier used for device
-inventory, safety-number UX, Key Transparency leaves, and session
-tie-breaks. It is derived from the device identity public key as:
+inventory, safety-number UX, Key Transparency leaves, and the
+`contact_id` every session is keyed by. It is derived from the device identity public key as:
 
 ```
 device_id = LOWER_HEX(SHA-256(IK_pub))[0..32]
@@ -130,25 +131,32 @@ The Ed25519 signature over the X25519 SPK is computed over:
 b"KonstruktX3DH-v1" || [0x00, 0x01] || SPK_pub
 ```
 
-### ML-KEM-768 signed prekey (KEM-SPK)
+### ML-KEM-1024 signed prekey (KEM-SPK)
 
-An ML-KEM-768 encapsulation key serving the analogous role for the
-post-quantum extension. Lifetime, rotation cadence, clean-freshness
-boundary, and epoch are identical to the X25519 SPK. A bundle whose
-KEM-SPK is older than `SPK_MAX_AGE_SECS` is stale for the clean Suite
-2 path.
-
-The KEM-SPK Ed25519 signature is computed over:
+An ML-KEM-1024 encapsulation key, the post-quantum counterpart of the SPK
+(Chapter 4 §4.3). Every Kyber prekey — signed and one-time — is signed
+over its creation time:
 
 ```
-b"KonstruktX3DH-v1" || [0x00, 0x10] || KEM_pub
+b"KonstruktX3DH-v1" || [0x00, 0x11] || created_at (u64 BE, unix seconds) || KEM_pub
 ```
 
-The public protobuf field names still say `kyber_*`; those names are
-legacy. The deployed KEM variant is ML-KEM-768 (Kyber-768), not
-Kyber-1024. If the optional hybrid identity key is present, the bundle
-may also include ML-DSA-65 hybrid signatures over the same SPK and
-KEM-SPK sign-messages (§2.3.3).
+twice: with the Ed25519 signing key and with the hybrid identity key
+(`construct-core/src/crypto/kyber_prekey_auth.rs:44`-`:57`). `created_at`
+is under both signatures because the bundle's upload time
+(`kyber_spk_uploaded_at`) is the server's own, unsigned claim. An initiator
+refuses a KEM-SPK whose signed `created_at` is more than 30 days old, and
+unlike the classical SPK there is no stale-tolerant override: for a Kyber
+key, skipping the check is the replay attack itself.
+
+The v1 sign-message (suite byte `0x10`, a 768-bit key, no time) is retired;
+a v1 signature MUST NOT verify as v2. The protobuf field names still say
+`kyber_*`.
+
+The old secrets of a rotated SPK and KEM-SPK are kept for 14 days
+(`SPK_RETENTION_AFTER_ROTATION_SECS`, `crypto/keys.rs:18`): the relay
+queue holds a message for 7 days, and a handshake to the old key must
+still open.
 
 ## 3.6 Ephemeral / one-time prekeys
 
@@ -164,16 +172,13 @@ OPKs falls back to a 3-DH handshake without the OPK component, which
 has reduced forward secrecy (the protocol's `BS-3` open issue — see
 [Implementation Status](./07-implementation-status.md)).
 
-### ML-KEM-768 one-time prekeys (KEM-OPK)
+### ML-KEM-1024 one-time prekeys (KEM-OPK)
 
-A pool of single-use ML-KEM-768 encapsulation keys serving the same
-purpose for the post-quantum extension. The server SHOULD maintain
-the KEM-OPK pool with the same threshold logic as classical OPKs.
-
-Absence of a KEM-OPK does not abort Suite 2 by itself: the initiator
-may encapsulate to the KEM-SPK and set `kyber_otpk_id = 0`. What is
-forbidden is silently downgrading to Suite 1 when the Suite 2 KEM-SPK
-or ML-KEM contribution is unavailable or invalid.
+A pool of single-use ML-KEM-1024 encapsulation keys, each signed like the
+KEM-SPK (with its own `created_at`). The initiator prefers a KEM-OPK;
+without one, or if the offered one fails its checks, it encapsulates to
+the KEM-SPK and sets `kyber_otpk_id = 0`. Without a KEM-SPK that passes
+its checks, no session is created: there is no classical fallback.
 
 ## 3.7 Per-session keys (Double Ratchet)
 
@@ -234,11 +239,11 @@ PreKeyBundle ::=
     spk_uploaded_at                  : int64
     spk_rotation_epoch               : u32
 
-    -- Suite 2 PQXDH extension; proto names are legacy `kyber_*`.
-    kyber_pre_key                    : optional bytes  -- ML-KEM-768 KEM-SPK
+    -- PQXDH v2 (mandatory for opening); proto names say `kyber_*`.
+    kyber_pre_key                    : optional bytes  -- ML-KEM-1024 KEM-SPK, 1568 B
     kyber_pre_key_id                 : optional u32
-    kyber_pre_key_signature          : optional bytes  -- Ed25519 over KEM sign-message
-    kyber_one_time_pre_key           : optional bytes  -- ML-KEM-768 KEM-OPK
+    kyber_pre_key_signature          : optional bytes  -- Ed25519 over the 0x11 sign-message
+    kyber_one_time_pre_key           : optional bytes  -- ML-KEM-1024 KEM-OPK, 1568 B
     kyber_one_time_pre_key_id        : optional u32
     kyber_spk_uploaded_at            : optional int64
     kyber_spk_rotation_epoch         : optional u32
@@ -249,11 +254,22 @@ PreKeyBundle ::=
     hybrid_identity_signature        : optional bytes  -- 64 B Ed25519 cross-signature
     signed_pre_key_hybrid_signature  : optional bytes  -- 3373 B
     kyber_pre_key_hybrid_signature   : optional bytes  -- 3373 B
-    supports_pq_ratchet              : bool            -- Suite 3 capability
+    supports_pq_ratchet              : bool            -- Suite 3 capability (unsigned)
+    kyber_pre_key_created_at                : optional u64    -- signed, field 25
+    kyber_one_time_pre_key_signature        : optional bytes  -- field 26
+    kyber_one_time_pre_key_created_at       : optional u64    -- signed, field 27
+    kyber_one_time_pre_key_hybrid_signature : optional bytes  -- field 28
 ```
 
-The current schema is in
-`construct-server/shared/proto/services/key_service.proto:175`-`:270`.
+The hybrid fields are optional in the schema but required by a client
+opening a session (Chapter 4 §4.3). `bundle_signature` (the server's
+signature over the bundle) is not a basis of trust: the device signatures
+are what make the bundle independent of the server, and the server's
+signature does not protect against the server.
+
+The current schema is message `PreKeyBundle` in
+`construct-server/shared/proto/services/key_service.proto` (fields 25–28
+added with PQXDH v2, 2026-09-25).
 `supports_pq_ratchet` is a capability flag: it allows a new session to
 negotiate core Suite 3, but it is not itself a protobuf `CryptoSuite`
 value.
@@ -268,11 +284,11 @@ handshake MUST NOT proceed.
 | Key | Rotation trigger | Cadence |
 |---|---|---|
 | IK, SK | None (rotating destroys the identity) | Never |
-| SPK, KEM-SPK | Periodic + on app launch if stale | Rotate weekly; clean peer acceptance ≤ 30 days |
+| SPK, KEM-SPK | Periodic + on app launch if stale | Old secrets kept 14 days after rotation; peers refuse a KEM-SPK whose signed age exceeds 30 days |
 | OPK, KEM-OPK | Consumed on each handshake | Re-uploaded when pool < threshold |
 | RK, CK_s, CK_r | Every Double Ratchet step | Per message / per round-trip |
 | MK | Every message | Used once, then deleted |
-| Session as a whole | END_SESSION, healing fallback | On demand |
+| Session state as a whole | Any message carrying the handshake header opens a new state; the replaced one is kept as a previous state (Ch. 5 §5.9). A DECRYPTION_ERROR naming the current state retires it (§5.10). | On demand; also a manual, local reset |
 
 These rotation invariants are what give the protocol its forward
 secrecy and post-compromise security properties (Chapters 1 and 5).

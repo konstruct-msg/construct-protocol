@@ -10,6 +10,47 @@ The Konstruct Protocol Specification follows
 - **PATCH** — editorial corrections that do not change implementer
   obligations.
 
+## v0.2.0 — *unreleased* (2026-09-28)
+
+Wire-incompatible. Reconciles the specification with construct-core
+0.18–0.20. Builds speaking v0.1 cannot open sessions with builds
+speaking v0.2; there is no compatibility path before 1.0.
+
+- **PQXDH v2, mandatory** ([Ch. 2 §2.3](./02-cryptographic-primitives.md),
+  [Ch. 4 §4.3](./04-session-handshake.md#43-initiator-path)). The ML-KEM
+  secret enters the initial root key
+  (`info = "Construct-PQXDH-RootKey-v2" || SHA-256(KEM_pub) || SHA-256(kem_ct)`)
+  instead of being mixed in after the first DH ratchet step, so the first
+  chain is no longer classical only. Prekeys move from ML-KEM-768 to
+  ML-KEM-1024 (1568-byte key and ciphertext); ML-KEM-768 remains only in the
+  Suite 3 ratchet. A session is not created without a validly signed Kyber
+  prekey and a hybrid identity. Removed: `construct-pqxdh-v1`, the deferred
+  contribution store (`KyberSessionState`), the classical fallback.
+- **Kyber prekey signatures v2** ([Ch. 3](./03-identity-key-hierarchy.md)):
+  suite byte `0x11`, signed `created_at`, Ed25519 and hybrid, on one-time
+  Kyber prekeys too; a KEM-SPK older than 30 days is refused with no
+  stale override. Bundle fields 25–28.
+- **PQ-ratchet downgrade refusal**: a device that advertised or used Suite 3
+  and stops advertising it is refused.
+- **Handshake header on the whole first flight, and it opens at any message
+  number** ([Ch. 4 §4.4.1](./04-session-handshake.md#441-what-opens-a-session)).
+  Wire `suite_id` bit `0x0100` marks it.
+- **The responder opens from the sender certificate**
+  ([Ch. 4 §4.4.2](./04-session-handshake.md#442-opening-without-the-server)),
+  with its server signature required; no bundle fetch to receive.
+- **No tie-break** ([Ch. 4 §4.5](./04-session-handshake.md#45-simultaneous-opening)).
+  Simultaneous openings keep both states.
+- **Previous states** ([Ch. 5 §5.9](./05-message-encryption.md#59-previous-states)):
+  up to three per peer device for seven days; one that decrypts is promoted.
+- **DECRYPTION_ERROR replaces END_SESSION and healing**
+  ([Ch. 5 §5.10](./05-message-encryption.md#510-decryption_error)): content
+  type 28, a fixed 191-byte sealed box naming the ratchet key of the unread
+  message; the writer retires that state only if it is current and resends
+  once. Content types 21 (END_SESSION) and 24 (SESSION_RESET_INIT) are
+  retired, as are `session_ready`, the handshake ping and the heal queue.
+- Open issues added: `DE-1`, `DE-2` ([Ch. 7](./07-implementation-status.md)).
+  Corrected: the test-coverage table overstated the integration tests.
+
 ## v0.1.0 — *unreleased*
 
 Initial public draft. The core protocol chapters and the introduction

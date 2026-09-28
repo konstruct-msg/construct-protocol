@@ -4,7 +4,7 @@ This appendix situates Konstruct's post-quantum construction against the
 other post-quantum messaging designs that are publicly documented and
 deployed at scale. It exists because the design decisions in
 [Chapter 2 §2.4](./02-cryptographic-primitives.md#24-suite-3--sparse-continuous-pq-ratchet)
-and [Chapter 4 §4.5](./04-session-handshake.md#45-pqxdh-suite-2--post-quantum-extension)
+and [Chapter 4 §4.3](./04-session-handshake.md#43-initiator-path)
 are not novel in kind, and a reader should be able to see which parts
 are conventional and which are ours.
 
@@ -17,8 +17,7 @@ implementation, as required by the editorial rule.
 Every deployed design in this space, Konstruct included, follows the
 same two-part pattern:
 
-1. A post-quantum KEM (ML-KEM-768 in all four systems below) is run
-   **alongside** a classical Diffie–Hellman, never instead of it, and
+1. A post-quantum KEM is run **alongside** a classical Diffie–Hellman, never instead of it, and
    the two secrets are combined through a KDF so that an adversary must
    break both.
 2. The classical Double Ratchet is left intact, and post-quantum
@@ -28,6 +27,14 @@ same two-part pattern:
 The differences are in *when* fresh KEM material is introduced after
 the handshake, and *how* the large KEM objects are carried.
 
+The parameter split is shared too: Signal PQXDH, Apple PQ3 and Konstruct
+(since PQXDH v2, 2026-09-25) use the 1024 parameter set for the prekeys
+and the initial key, and the continuing ratchets — Apple's rekey, Signal
+SPQR, Konstruct Suite 3 — use ML-KEM-768. Konstruct's earlier PQXDH v1
+used ML-KEM-768 and mixed its secret in only after the first DH ratchet
+step, so the first chain of every session was classical; v2 puts the
+secret in the initial root key.
+
 ## B.2 Handshake-only versus continuing
 
 | System | PQ at handshake | PQ after handshake |
@@ -35,7 +42,7 @@ the handshake, and *how* the large KEM objects are carried.
 | Signal PQXDH (2023) | yes | no |
 | Apple iMessage PQ3 (2024) | yes | yes — periodic rekey |
 | Signal Triple Ratchet / SPQR (Oct 2025) | yes | yes — continuous chunked ratchet |
-| Konstruct Suite 2 | yes (§4.5) | no |
+| Konstruct Suites 1 and 2 | yes — PQXDH v2, mandatory (§4.3) | no |
 | Konstruct Suite 3 | yes | yes — sparse periodic rekey (§2.4) |
 
 Signal's PQXDH was the first at-scale deployment and deliberately
@@ -45,7 +52,7 @@ rested on a single KEM contribution made at its start. Apple's PQ3 and
 Signal's later SPQR both exist to close that gap, and Konstruct's Suite
 3 addresses the same gap by the same reasoning.
 
-Konstruct Suite 2 alone therefore sits at the PQXDH level. The
+Konstruct without Suite 3 therefore sits at the PQXDH level. The
 continuing property requires Suite 3, which is negotiated separately
 (§2.4).
 
@@ -70,8 +77,10 @@ and one that never alternates does not rekey at all.
 
 ## B.4 Carrying the KEM objects
 
-ML-KEM-768 encapsulation keys are 1184 bytes and ciphertexts 1088
-bytes, against 32 bytes for an X25519 public key. Each system resolves
+In the continuing ratchets, ML-KEM-768 encapsulation keys are 1184
+bytes and ciphertexts 1088 bytes, against 32 bytes for an X25519 public
+key. (Konstruct's handshake ciphertext is ML-KEM-1024, 1568 bytes, and
+rides only on the initiator's first flight.) Each system resolves
 this differently:
 
 - **Apple PQ3** sends the key whole and accepts the cost, reporting

@@ -24,8 +24,14 @@ text is a bug — please [open a security advisory](./disclosure.md).
 A messenger protocol built on the Signal Protocol design — X3DH
 handshake + Double Ratchet for ongoing messaging — extended with:
 
-- A hybrid post-quantum KEM (**ML-KEM-768**, NIST FIPS 203) layered
-  alongside the classical X25519 key exchange.
+- A mandatory hybrid post-quantum handshake (PQXDH v2): an
+  **ML-KEM-1024** (NIST FIPS 203) secret enters the initial root key
+  beside the X25519 outputs, so every message — the first included — is
+  protected by both.
+- Sessions that renew by sending: a device keeps a few previous states,
+  and an unreadable message is answered with a decryption error naming
+  the state it was written on. There is no reset message to forge,
+  replay or ration.
 - A sparse continuous post-quantum ratchet (Suite 3) that can add new
   ML-KEM-768 contributions after session establishment.
 - Metadata-minimising sealed sender, backed by Privacy Pass tokens for

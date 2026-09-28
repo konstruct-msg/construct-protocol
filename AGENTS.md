@@ -23,8 +23,12 @@ Concretely:
   `ML-DSA-65`) with the informal name in parentheses (`Kyber-768`,
   `Dilithium-3`). Never use informal names alone — they are
   ambiguous about variant (e.g. Kyber-512 / Kyber-768 / Kyber-1024).
-  Specifically: **the deployed KEM is ML-KEM-768, not Kyber-1024 or
-  any other variant.**
+  Specifically, since PQXDH v2 (2026-09-25): **prekeys and the handshake
+  use ML-KEM-1024; ML-KEM-768 appears only in the Suite 3 ratchet.** Both
+  are deployed, so an unqualified "ML-KEM" is ambiguous here too — name the
+  parameter set and the role. This line said "ML-KEM-768, not Kyber-1024"
+  until 2026-09-28; it was true until the cutover and then was not.
+  Verify against `construct-core/src/crypto/pq_x3dh.rs` before writing either.
 - **Implementation status claims**: must cite the source file and line.
 - **Things not yet in code**: must be explicitly marked as "designed"
   / "planned" / "not yet implemented". Never present them in present
