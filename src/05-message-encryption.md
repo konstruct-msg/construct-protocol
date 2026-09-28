@@ -429,19 +429,16 @@ the new state, so it carries the handshake header and the receiver opens from it
 The receiver sends one error per unread message and marks the message processed only once the
 error was built, so a redelivery is a duplicate and produces no second error.
 
-Which certificate the error is sealed to differs by path in the reference implementation:
+An error is sealed only to a writer the server vouches for: the unread message's sender
+certificate MUST pass `identity_for_opening` against the server keys held, and its key MUST
+derive to the device the message was filed under (`Orchestrator::vouched_writer`,
+construct-core 0.20.1). Otherwise no error is sent and the message is not recorded, so the same
+message arriving with an honest certificate is still answered. Anyone who knows the recipient's
+public identity key can seal an envelope to it; without this check an unsigned certificate
+would make the recipient answer a stranger's claim, to a device the stranger named. Until
+construct-core 0.20.1 the check was applied only on the failed-open path (`DE-1`).
 
-- a failed **receiving open** (§4.4) answers only a writer whose certificate passes
-  `identity_for_opening` and whose key derives to the device the message was queued under
-  (`orchestrator.rs:876`-`:883`);
-- a message that fails on a **held** state is answered to the identity key its certificate
-  names, without checking the certificate's server signature (`message_router.rs:392`-`:395`).
-
-The second path is open issue `DE-1` (Chapter 7): an envelope with an unsigned certificate makes
-the receiver send a 191-byte error, addressed to the device the envelope claimed and sealed to
-a key that device does not hold. The claimed device cannot open it and discards it
-(`DECRYPTION_ERROR_UNREADABLE`); nothing is retired or resent. The intended behaviour is the
-first path's check on both. When a receiving open fails because the named OPK or Kyber prekey is gone (§4.4.3), the
+When a receiving open fails because the named OPK or Kyber prekey is gone (§4.4.3), the
 error carries `PrekeyUnavailable`.
 
 What the relay learns: both shipping clients send the error on the authenticated `SendMessage`

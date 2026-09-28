@@ -48,7 +48,10 @@ speaking v0.2; there is no compatibility path before 1.0.
   message; the writer retires that state only if it is current and resends
   once. Content types 21 (END_SESSION) and 24 (SESSION_RESET_INIT) are
   retired, as are `session_ready`, the handshake ping and the heal queue.
-- Open issues added: `DE-1`, `DE-2` ([Ch. 7](./07-implementation-status.md)).
+- A DECRYPTION_ERROR is sealed only to a writer whose certificate passes the server-signature
+  and device checks, on every path ([Ch. 5 §5.10.3](./05-message-encryption.md#5103-receiver));
+  `DE-1`, found while writing this revision, was fixed in construct-core 0.20.1.
+- Open issue added: `DE-2` ([Ch. 7](./07-implementation-status.md)).
   Corrected: the test-coverage table overstated the integration tests.
 
 ## v0.1.0 — *unreleased*
