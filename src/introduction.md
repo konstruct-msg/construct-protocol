@@ -32,8 +32,9 @@ handshake + Double Ratchet for ongoing messaging — extended with:
   and an unreadable message is answered with a decryption error naming
   the state it was written on. There is no reset message to forge,
   replay or ration.
-- A sparse continuous post-quantum ratchet (Suite 3) that can add new
-  ML-KEM-768 contributions after session establishment.
+- A sparse continuous post-quantum ratchet (Suite 4) that adds new
+  ML-KEM-768 contributions after session establishment, one derived key
+  per message since construct-core 0.24.0 (§2.4).
 - Metadata-minimising sealed sender, backed by Privacy Pass tokens for
   abuse resistance.
 - A pluggable transport layer (**VEIL**) designed to keep the messenger
@@ -72,7 +73,7 @@ public reference implementation
 
 | Area | Status |
 |---|---|
-| Cryptographic core (X3DH, Double Ratchet, hybrid PQ KEM, Suite 3 PQ ratchet) | Implemented and used in production by the iOS TestFlight build. |
+| Cryptographic core (X3DH, Double Ratchet, hybrid PQ KEM, Suite 4 PQ ratchet) | Implemented and used in production by the iOS TestFlight build. |
 | iOS / macOS client | Production-quality code, distributed via [TestFlight beta](https://testflight.apple.com/join/NH3WssFh). No public App Store release yet. |
 | Android client | Kotlin client on the same core release as iOS; exchanges messages with iOS on the test stand. Debug builds only — no signed release or store distribution yet; no VEIL transport yet. See [Chapter 7 §7.2](./07-implementation-status.md#72-platform-matrix). |
 | Federation (server-to-server) | **Implemented** — inbound + outbound sealed delivery, Ed25519-signed. Multi-node interoperability test outstanding. |

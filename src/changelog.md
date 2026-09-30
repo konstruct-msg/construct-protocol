@@ -10,6 +10,88 @@ The Konstruct Protocol Specification follows
 - **PATCH** — editorial corrections that do not change implementer
   obligations.
 
+## v0.3.0 — *unreleased* (2026-09-30)
+
+Wire-incompatible. Reconciles the specification with construct-core 0.24.0 (PQR-2,
+`decisions/pq-ratchet-per-message-chain.md`) and 0.24.1 (PQR-1). Suite 3 (the sparse continuous PQ
+ratchet as it existed through core 0.23) is retired without a compatibility path, as PQXDH v1 was
+before it: builds speaking Suite 3 cannot exchange PQ-ratchet messages with builds speaking Suite
+4, and a stored Suite-3 session is not carried forward — the next send simply opens a Suite-4 one.
+This revision also corrects a description that had been stale since PQXDH v2 (2026-09-25, core
+0.18): the book still described the PQ ratchet as bundle-negotiated with a downgrade refusal,
+which that same cutover removed.
+
+- **The post-quantum half of the ratchet gets per-message forward secrecy**
+  ([Ch. 2 §2.4](./02-cryptographic-primitives.md#24-suite-4--sparse-continuous-pq-ratchet-per-message-chains),
+  [Ch. 5 §5.1](./05-message-encryption.md#51-session-state),
+  [Ch. 5 §5.8.3](./05-message-encryption.md#583-pq-ratchet-retention-suite-4)). Until now, a
+  completed PQ epoch's ML-KEM-768 secret was stored and mixed unchanged into every message key of
+  the epoch (`pq_epoch_secret`, up to 4 epochs retained); the classical half of the ratchet
+  already had per-message forward secrecy, the post-quantum half only per-epoch. A completed
+  epoch's secret is now spent at once into two directional chain keys
+  (`HKDF-SHA-256(salt = ∅, IKM = epoch_secret, info = "construct-pqr-chains-v2" ‖ epoch, L = 64)`)
+  and never stored; each message takes the next key of its sender's chain
+  (`info = "construct-pqr-step-v2"`), mixed into the Double Ratchet key exactly as before
+  (`info = "construct-pqr-msg-v2"`, the PQ key as the HKDF salt). The receiver advances its
+  chain to the message's index, keeping passed-over keys as skipped PQ keys under the same
+  count/jump/age bounds as classical skipped keys; a failed decrypt rolls back all PQ state via
+  the existing snapshot mechanism, so a forged index consumes nothing. Only the current epoch's
+  send chain is live; `PQ_CHAIN_RETENTION = 2` (current + previous epoch's receive chains)
+  replaces the old 4-epoch-secret retention and is the new answer to `PQR-4`
+  ([Ch. 7 §7.3](./07-implementation-status.md#73-open-security-issues)) — the bound is the
+  skipped-key window, not an independently-sized epoch count. `PQR-2` is resolved by this change.
+- **Suite 4 = `PQ_RATCHET`** (`0x0004`); Suite 3 (`0x0003`) is retired. The WirePayload PQ section
+  ([Ch. 5 §5.3](./05-message-encryption.md#53-wire-format-wirepayload-header)) gains
+  `pq_key_index`, encoded as **minimal unsigned LEB128** (1 byte below 128) directly after
+  `pq_message_epoch`; a non-minimal encoding, an index without an epoch, or a frame still claiming
+  suite 3 is refused (`NonCanonicalKeyIndex`, `PqKeyIndexWithoutEpoch`, `RetiredSuite` — Appendix A
+  §A.4). The AD ([Ch. 5 §5.4](./05-message-encryption.md#54-associated-data-construction-ad)) now
+  binds `pq_message_epoch ‖ pq_key_index` (both `u32` BE): 133 bytes for a Suite 4 UUID session,
+  up from Suite 3's 129. `WirePayload.pq_key_index` added to the UniFFI record.
+- **Known-answer vectors** for the three new derivations (secret = `0x42`×32, epoch = 1, DR key =
+  `0x07`×32), recomputed independently against RFC 5869 and pinned in
+  [Ch. 2 §2.4.2](./02-cryptographic-primitives.md#242-known-answer-vectors): the initiator's send
+  and receive chain keys, the send chain's keys at index 0 and 1, and the message key mixed from
+  index 0. To be published to `construct-protos/conformance` alongside the existing content-type
+  vectors.
+- **`CfePqRatchetStateV2`** (CFE key `pqr2`: epoch chains, skipped PQ keys, provisional chains
+  in place of a provisional secret) replaces `CfePqRatchetStateV1` (CFE key `pqr`)
+  ([Ch. 3 §3.7](./03-identity-key-hierarchy.md#37-per-session-keys-double-ratchet)). The old key
+  is not migrated — a Suite-3 session is refused at restore, not upgraded in place.
+- [Appendix B §B.6](./appendix-b-pq-comparison.md#b6-granularity-of-the-post-quantum-guarantee)
+  rewritten: Konstruct's post-quantum forward secrecy now matches Signal SPQR's in kind
+  (per-message). The comparison describes Konstruct's own mechanism (two chains reseeded from a
+  fresh KEM secret every epoch) without characterising SPQR's internal chain structure, which this
+  book has not independently verified against a primary source. The earlier per-epoch asymmetry is
+  kept in the text as a dated "changed" note, not silently rewritten away.
+- **PQR-1 resolved** (construct-core 0.24.1). An epoch used to rekey only on a count of
+  DH-ratchet turns, so a one-sided conversation — one side always writing, the other always
+  reading — never took a turn and so never rekeyed. `pq_ratchet_max_age_seconds` (7 days, the
+  floor Apple PQ3 guarantees) is now checked on every `encrypt`: past it, the exchange initiator
+  proposes a new epoch on its next send regardless of the turn count
+  (`maybe_start_pq_exchange_by_age`); the turn-counted path checks the same age. `pq_epoch_since`
+  is the clock, persisted as CFE `CfePqRatchetStateV2.since`; a blob without it reads as
+  maximally old. **Remaining gap, stated in the code and here:** only the exchange initiator ever
+  proposes, so a conversation in which only the *responder* writes still cannot rekey by either
+  path — closing that needs roles that alternate per epoch, not a parameter change. See
+  [Ch. 2 §2.4.3](./02-cryptographic-primitives.md#243-cadence-and-retention),
+  [Appendix B §B.3](./appendix-b-pq-comparison.md#b3-rekey-cadence), and
+  [Ch. 7 §7.3](./07-implementation-status.md#73-open-security-issues).
+- **Correction: the PQ ratchet has not been bundle-negotiated since PQXDH v2** (2026-09-25, core
+  0.18), and this book kept describing it as if it still were. The unsigned `supports_pq_ratchet`
+  bundle capability and its downgrade refusal (`PQ_DOWNGRADE_REFUSED`) were removed the same
+  commit that made PQXDH v2 — and with it the PQ ratchet — mandatory wherever the core's
+  `post-quantum` feature is built; a first message on any other suite is refused
+  (`PQXDH_REQUIRED`). Corrected in [Ch. 2 §2.4](./02-cryptographic-primitives.md#24-suite-4--sparse-continuous-pq-ratchet-per-message-chains),
+  [Ch. 3 §3.7](./03-identity-key-hierarchy.md#37-per-session-keys-double-ratchet),
+  [Ch. 4 §4.3/§4.6/§4.7](./04-session-handshake.md), [Ch. 7 §7.1](./07-implementation-status.md#71-component-matrix),
+  and [Appendix A §A.2.1](./appendix-a-errors.md#a21-session-refusal-prefixes). The field (proto
+  field 24) is not removed from the wire schema, only deprecated, so a stale value from an old
+  client is read and ignored rather than misparsed.
+- Every "Suite 3" naming elsewhere in this book (§2.1 suite table, §2.7 constants, Ch. 4 §4.6,
+  Ch. 6 §6.2, Ch. 7 §7.1/§7.3, Appendix A's `KemEncapsulationError` row, the introduction) now
+  reads Suite 4, with a historical note where the old numbering still matters.
+
 ## v0.2.0 — *unreleased* (2026-09-28)
 
 Wire-incompatible. Reconciles the specification with construct-core

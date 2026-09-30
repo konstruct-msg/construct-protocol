@@ -3,7 +3,7 @@
 This appendix situates Konstruct's post-quantum construction against the
 other post-quantum messaging designs that are publicly documented and
 deployed at scale. It exists because the design decisions in
-[Chapter 2 §2.4](./02-cryptographic-primitives.md#24-suite-3--sparse-continuous-pq-ratchet)
+[Chapter 2 §2.4](./02-cryptographic-primitives.md#24-suite-4--sparse-continuous-pq-ratchet-per-message-chains)
 and [Chapter 4 §4.3](./04-session-handshake.md#43-initiator-path)
 are not novel in kind, and a reader should be able to see which parts
 are conventional and which are ours.
@@ -30,7 +30,7 @@ the handshake, and *how* the large KEM objects are carried.
 The parameter split is shared too: Signal PQXDH, Apple PQ3 and Konstruct
 (since PQXDH v2, 2026-09-25) use the 1024 parameter set for the prekeys
 and the initial key, and the continuing ratchets — Apple's rekey, Signal
-SPQR, Konstruct Suite 3 — use ML-KEM-768. Konstruct's earlier PQXDH v1
+SPQR, Konstruct Suite 4 — use ML-KEM-768. Konstruct's earlier PQXDH v1
 used ML-KEM-768 and mixed its secret in only after the first DH ratchet
 step, so the first chain of every session was classical; v2 puts the
 secret in the initial root key.
@@ -43,17 +43,17 @@ secret in the initial root key.
 | Apple iMessage PQ3 (2024) | yes | yes — periodic rekey |
 | Signal Triple Ratchet / SPQR (Oct 2025) | yes | yes — continuous chunked ratchet |
 | Konstruct Suites 1 and 2 | yes — PQXDH v2, mandatory (§4.3) | no |
-| Konstruct Suite 3 | yes | yes — sparse periodic rekey (§2.4) |
+| Konstruct Suite 4 | yes | yes — sparse periodic rekey (§2.4) |
 
 Signal's PQXDH was the first at-scale deployment and deliberately
 covered only the initial handshake, which means it provided no
 post-quantum post-compromise security: a session that ran for months
 rested on a single KEM contribution made at its start. Apple's PQ3 and
 Signal's later SPQR both exist to close that gap, and Konstruct's Suite
-3 addresses the same gap by the same reasoning.
+4 addresses the same gap by the same reasoning.
 
-Konstruct without Suite 3 therefore sits at the PQXDH level. The
-continuing property requires Suite 3, which is negotiated separately
+Konstruct without Suite 4 therefore sits at the PQXDH level. The
+continuing property requires Suite 4, which is negotiated separately
 (§2.4).
 
 ## B.3 Rekey cadence
@@ -62,18 +62,20 @@ continuing property requires Suite 3, which is negotiated separately
 |---|---|
 | Apple PQ3 | approximately every 50 messages, **and at least once every 7 days** |
 | Signal SPQR | continuous — a new exchange proceeds as fast as message flow allows |
-| Konstruct Suite 3 | every 16 DH-ratchet turns; no time-based floor |
+| Konstruct Suite 4 | every 16 DH-ratchet turns, **and at least once every 7 days** (construct-core 0.24.1) |
 
 The three units are not comparable directly. Konstruct counts DH
-ratchet turns — changes of conversational direction — so a one-sided
-burst of any length makes no progress, while an alternating exchange
-rekeys after sixteen turns. Apple counts messages and additionally
-guarantees a floor in wall-clock time; Signal is bounded only by how
-fast chunks can be carried.
+ratchet turns — changes of conversational direction — while additionally bounding the epoch's
+wall-clock age; Apple counts messages and also guarantees a floor in wall-clock time; Signal is
+bounded only by how fast chunks can be carried.
 
-Konstruct is the only one of the three with no time-based floor. A
-conversation that alternates a few times a month rekeys at that rate,
-and one that never alternates does not rekey at all.
+> **Changed in construct-core 0.24.1** (PQR-1, TODO 64.1). Until then Konstruct was the only one
+> of the three with no time-based floor: a one-sided conversation took no DH turn and so never
+> rekeyed, however long it ran. The exchange initiator now also proposes a new epoch on its next
+> send once the current one has stood for `pq_ratchet_max_age_seconds` (7 days) — the same floor
+> Apple PQ3 guarantees — independent of the turn count. The gap this does not close: only the
+> initiator ever proposes, so a conversation in which only the *responder* writes still cannot
+> rekey by either path (§2.4.3, Chapter 7 §7.3).
 
 ## B.4 Carrying the KEM objects
 
@@ -95,10 +97,10 @@ this differently:
   reordering. The published design also splits the encapsulation key
   into a 64-byte seed-plus-hash phase and a bulk phase so the two
   directions can transmit in parallel.
-- **Konstruct Suite 3** sends each object whole in the frame's PQ
+- **Konstruct Suite 4** sends each object whole in the frame's PQ
   section ([Chapter 5 §5.3](./05-message-encryption.md#53-wire-format-wirepayload-header)),
   and re-attaches it to every outgoing message until implicitly
-  acknowledged (§2.4.2 rule 2). Loss is therefore recovered by
+  acknowledged (§2.4.4 rule 2). Loss is therefore recovered by
   repetition rather than by redundancy, at a cost of 1184 or 1088 bytes
   per outgoing message for the duration of an unacknowledged exchange.
 
@@ -113,31 +115,39 @@ Konstruct obtains the same property without a dedicated mechanism.
 Delivery receipts are ordinary session frames — they are encrypted
 through the same ratchet as any message (content type 14 inside the
 frame) — so they advance the DH ratchet turn counter on receipt and
-carry any pending PQ field on send (§2.4.1). A device that is online
+carry any pending PQ field on send (§2.4.3). A device that is online
 and acknowledging therefore keeps the exchange moving whether or not
 its user replies.
 
 ## B.6 Granularity of the post-quantum guarantee
 
-This is the sharpest difference and worth stating precisely.
+> **Changed 2026-09-30** (construct-core 0.24.0, PQR-2). Until then this section described a real
+> asymmetry: Konstruct's Suite 3 derived every message key of an epoch from one stored
+> `pq_epoch_secret`, so the post-quantum contribution was constant within an epoch while the
+> classical half already ratcheted per message. That gap is closed. What follows is the current
+> state, kept honest about what changed and when rather than rewritten as if it had always been
+> true.
 
 Signal's SPQR carries its own symmetric chain inside the post-quantum
 component, so the post-quantum contribution ratchets between rekeys and
 the post-quantum half of forward secrecy has the same per-message
 granularity as the classical half.
 
-Konstruct's Suite 3 derives every message key of an epoch from the same
-`pq_epoch_secret` (§2.4.2 rule 5). Within an epoch the post-quantum
-contribution is a constant. Forward secrecy at message granularity is
-supplied by the classical Double Ratchet, which is unmodified and
-continues to provide it; what is coarser is specifically the
-post-quantum component, whose granularity is the epoch rather than the
-message.
+Konstruct's Suite 4 now does the same in kind, by a different mechanism. A completed epoch's
+ML-KEM-768 secret is spent once, into two directional chain keys (§2.4.1), and is never itself
+stored; each message takes the next key of its sender's chain, and a receiver's PQ key for a read
+message is derivable by neither side afterwards — the chain that produced it has already stepped
+past that index (§2.4.4 rule 5). Forward secrecy at message granularity is now supplied by *both*
+halves of the ratchet, where before it was the classical Double Ratchet alone.
 
-The practical reading: an adversary who obtains one epoch secret — and
-who can also break X25519 — recovers the messages of that epoch.
-Against an adversary who can break neither, or only one of the two, the
-guarantee is unchanged.
+A completed epoch, in turn, now arrives at least every 16 DH-ratchet turns or every 7 days —
+whichever comes first, since `PQR-1` was resolved in construct-core 0.24.1 (§2.4.3) — rather than
+only on a turn count a one-sided conversation might never reach. The practical reading: an
+adversary who steals a session state now recovers no post-quantum contribution to a message
+already read, regardless of epoch, whether or not they can also break X25519. What they can still
+recover is the *future* of the current epoch's chains and any not-yet-consumed skipped key within
+`PQ_CHAIN_RETENTION` (§2.4.3) — the same residual an equivalent compromise leaves against the
+classical chain.
 
 ## B.7 Authenticating the peer
 

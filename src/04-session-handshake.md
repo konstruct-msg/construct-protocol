@@ -50,7 +50,7 @@ Fixed byte strings:
 | Identity answer flag | bit `0x0400`: the responder's answer to it follows | `wire_payload.rs` (`IDENTITY_PROOF_FLAG`) |
 | KEM identity seed | `HKDF-SHA256(salt = ∅, IKM = ML-DSA-65 seed of the hybrid key, info = b"Construct-KEM-identity-v1", L = 64)` | `construct-core/src/crypto/keys.rs` (`kem_identity_seed`) |
 | Identity-answer mix labels | `b"Construct-KEM-identity-root-v1"`, `b"Construct-KEM-identity-chain-v1"` | `double_ratchet/internals.rs` (`mix_identity_secret`) |
-| Suite identifiers | `0x0001` classic, `0x0002` PQ hybrid signatures, `0x0003` PQ ratchet | `construct-core/src/crypto/suite_id.rs` |
+| Suite identifiers | `0x0001` classic, `0x0002` PQ hybrid signatures, `0x0004` PQ ratchet (`0x0003` retired, PQR-2) | `construct-core/src/crypto/suite_id.rs` |
 
 An interoperable implementation MUST use these exact byte values; any difference produces a
 different root key and the first message fails its AEAD check.
@@ -111,9 +111,16 @@ Alice fetches the bundle of Bob's device. She MUST:
 
    A KEM-OPK is preferred; if it fails its checks, the KEM-SPK is used, and the KEM-SPK MUST
    pass them. The fingerprint of `HIK_pub` is pinned once X3DH has verified the bundle.
-5. If this device has previously advertised or used the PQ ratchet (Suite 3) and the bundle no
-   longer advertises it, refuse (`PQ_DOWNGRADE_REFUSED`). The capability flag is served
-   unsigned beside the bundle, so dropping it would otherwise be a silent downgrade.
+
+There is no PQ-ratchet downgrade check here: the PQ ratchet (Suite 4, §2.4) is mandatory wherever
+`post-quantum` is built, so there is nothing a bundle can withhold to downgrade it.
+
+> **Removed with PQXDH v2** (2026-09-25, construct-core 0.18). Before then, step 5 of this list
+> refused a bundle (`PQ_DOWNGRADE_REFUSED`) if this device had previously advertised or used the
+> PQ ratchet and the fetched bundle no longer advertised the unsigned `supports_pq_ratchet`
+> capability. The same commit that made PQXDH v2 mandatory removed the capability flag and its
+> downgrade ledger together: once every build negotiates the PQ ratchet unconditionally, a
+> capability nobody can withhold cannot be downgraded.
 
 ### Step 2: Classical DH
 
@@ -278,13 +285,26 @@ A device keeps at most one open **in flight** per peer device: two concurrent op
 two of the peer's one-time prekeys for one state that will be used
 (`construct-core/src/orchestration/session_machine.rs`, `Opening`, 30 s time-out).
 
-## 4.6 Suite 3 negotiation boundary
+## 4.6 Suite 4 is not negotiated
 
-Suite 3 (the sparse continuous ML-KEM-768 ratchet, §5) is negotiated from the
-`supports_pq_ratchet` capability, not from the bundle's `crypto_suite`. The handshake itself is
-the same PQXDH v2 for every suite; Suite 3 is the ratchet layer that continues after it. The
-split mirrors Signal (PQXDH and SPQR) and Apple PQ3: ML-KEM-1024 for prekeys and the first
-message, ML-KEM-768 in the ratchet.
+Suite 4 (the sparse continuous ML-KEM-768 ratchet, per-message chains — §2.4, §5) is not
+negotiated from the bundle's `crypto_suite`, or from anything else: it is mandatory wherever the
+core's `post-quantum` build feature is present, which is every shipping platform build. The
+handshake itself is the same PQXDH v2 for every suite; Suite 4 is the ratchet layer that
+continues after it. The split mirrors Signal (PQXDH and SPQR) and Apple PQ3: ML-KEM-1024 for
+prekeys and the first message, ML-KEM-768 in the ratchet.
+
+> **Changed with PQXDH v2** (2026-09-25, construct-core 0.18). Before then this suite (numbered 3)
+> was negotiated per session from an unsigned `supports_pq_ratchet` bundle capability, with a
+> downgrade refused (`PQ_DOWNGRADE_REFUSED`, §4.3 Step 1) if a device that had used it saw the
+> capability withdrawn. The same commit that made PQXDH v2 mandatory removed the capability and
+> the downgrade check together, heading this section "Suite 3/4 negotiation boundary" until this
+> revision — there has been no negotiation boundary to describe since 2026-09-25.
+
+Suite 3 — the same mandatory ratchet, but an epoch secret mixed once per epoch instead of a chain
+per message — is retired as of construct-core 0.24.0 without a compatibility path: a suite-3
+message is refused at unpack, and a suite-3 stored session is refused at restore, so the next
+send opens a suite-4 session instead (§2.4).
 
 ## 4.7 Failure modes
 
@@ -292,7 +312,6 @@ message, ML-KEM-768 in the ratchet.
 |---|---|
 | `sig_SPK` fails | Abort. Do not retry against the same bundle. |
 | Any `PqxdhRefusal` (§4.3 Step 1.4) | Abort. No session is created; there is no classical fallback. |
-| PQ ratchet capability withdrawn | Abort (`PQ_DOWNGRADE_REFUSED`). |
 | Sender certificate fails `identity_for_opening` | Do not open. `NoTrustedKey` is transient and retried; the others are refusals. |
 | Responder AEAD fails on the first message | Nothing changes; a held state is restored. OPK is not consumed. |
 | Named OPK / Kyber prekey not held | DECRYPTION_ERROR with `PrekeyUnavailable` (§5.10). |

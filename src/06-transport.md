@@ -62,18 +62,18 @@ Restated for completeness:
 | kyber_otpk_id | u32 LE | 4 B | ML-KEM-1024 one-time prekey id consumed; `0` = the KEM-SPK was used |
 | kem_len | u16 LE | 2 B | Length of the KEM ciphertext that follows; `0` when absent |
 | prev_chain_length | u32 LE | 4 B | Previous-chain length `PN` |
-| suite_id | u16 LE | 2 B | `0x0001` Suite 1, `0x0002` Suite 2, or `0x0003` Suite 3; bit `0x0100` set on a frame carrying the PQXDH v2 header, `0x0200` with the initiator's KEM identity key, `0x0400` with the responder's answer to it |
+| suite_id | u16 LE | 2 B | `0x0001` Suite 1, `0x0002` Suite 2, or `0x0004` Suite 4 (PQ ratchet); bit `0x0100` set on a frame carrying the PQXDH v2 header, `0x0200` with the initiator's KEM identity key, `0x0400` with the responder's answer to it. `0x0003`, the retired epoch-granular PQ ratchet (Suite 3), is refused outright — see §2.4 |
 | kem_ct | bytes | `kem_len` B | ML-KEM-1024 ciphertext, 1568 B, on every message of the initiator's first flight (the handshake header) |
 | kem_identity | u16 LE len + bytes | 2 + 1568 B | With bit `0x0200`: the initiator's ML-KEM-1024 identity key (Ch. 4 §4.4.4) |
 | identity_answer | u16 LE len + bytes | 2 + 1568 B | With bit `0x0400`: the responder's ML-KEM-1024 answer to it |
-| suite3_pq_section | bytes | variable | Present only when `suite_id = 0x0003`; see §5.3 |
+| pq_ratchet_section | bytes | variable | Present only when `suite_id = 0x0004`; see §5.3 |
 | aead_frame | bytes | variable | `nonce(12) || ct(N) || tag(16)` |
 
 Total fixed header size: **52 bytes**
-(`construct-core/src/wire_payload.rs:22`-`:36`). All numeric fields
-in the fixed WirePayload header and Suite 3 PQ section are
-little-endian (`construct-core/src/wire_payload.rs:106`-`:129`,
-`:220`-`:264`).
+(`construct-core/src/wire_payload.rs`). All numeric fields
+in the fixed WirePayload header are little-endian, including the PQ-ratchet section's
+`pq_message_epoch`; its `pq_key_index` is minimal unsigned LEB128, not a fixed-width integer
+(`construct-core/src/wire_payload.rs`, §5.3).
 
 A WirePayload is the unit of work the Double Ratchet produces and
 consumes. It MUST NOT carry plaintext routing fields outside of

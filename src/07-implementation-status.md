@@ -15,17 +15,17 @@ reference so it can be re-verified independently.
 |---|---|---|
 | X3DH + PQXDH v2 handshake (ML-KEM-1024 in the initial root key) | **Implemented and mandatory** since 2026-09-25 (core 0.18); shipped in iOS TestFlight and the Android build. No classical-only path; v1 removed without compatibility | `construct-core/src/crypto/handshake/x3dh.rs:162`-`:185`; `src/crypto/pq_x3dh.rs` (`mlkem1024_*`); refusals `src/orchestration/pq_prekey_plan.rs` |
 | Kyber prekey signatures (Ed25519 + hybrid, over `created_at`) | **Implemented**, verified by the initiator's core; a missing or invalid one refuses the session | `construct-core/src/crypto/kyber_prekey_auth.rs` |
-| PQ-ratchet downgrade refusal | **Implemented** — a device that advertised or used Suite 3 and stops advertising it is refused (`PQ_DOWNGRADE_REFUSED`) | `construct-core/src/orchestration/pq_prekey_plan.rs` |
+| PQ-ratchet downgrade refusal | **Removed** with PQXDH v2 (2026-09-25, core 0.18). Until then, a device that had advertised or used the PQ ratchet was refused (`PQ_DOWNGRADE_REFUSED`) if a later bundle stopped advertising the unsigned `supports_pq_ratchet` capability. The same commit made the PQ ratchet mandatory wherever `post-quantum` is built and deleted both the capability and its downgrade ledger — nothing is left to downgrade | `construct-core/src/crypto/session_api.rs` (`local_supports_pq_ratchet`); removal noted in `src/orchestration/pq_prekey_plan.rs` |
 | Responder's proof of the initiator (ML-KEM-1024 identity key) | **Implemented and mandatory** since 2026-09-28 (core 0.22) — the responder pins the initiator's KEM identity key and answers to it; the initiator is `ReceivedProven` once it sends on a chain after that answer. No signature: the first contact stays deniable. First contact is trust-on-first-use | `construct-core/src/orchestration/orchestrator.rs` (`admit_kem_identity`); `double_ratchet/internals.rs` (`answer_initiator_identity`, `mix_identity_secret`) |
 | Receiving open from the sender certificate | **Implemented** since 2026-09-27 — no bundle fetch to receive; the certificate's server signature is required | `construct-core/src/orchestration/orchestrator.rs` (`open_receiving`); `src/crypto/sealed_sender/mod.rs:245` |
 | Previous states (renew by sending) | **Implemented** since 2026-09-27 — up to 3 previous states per device, 7-day bound; any message with the handshake header opens | `construct-core/src/orchestration/session_lifecycle.rs:31`-`:39` |
 | DECRYPTION_ERROR (content type 28) | **Implemented** since 2026-09-28 on core, iOS and Android; replaces END_SESSION | `construct-core/src/orchestration/decryption_error.rs` |
-| Sparse continuous PQ ratchet (Suite 3) | **Implemented**, capability-gated by `supports_pq_ratchet`; negotiated only when both peers advertise support | `construct-core/src/crypto/suite_id.rs:28`-`:33`; negotiation test `src/crypto/client_api.rs:1082`-`:1152`; wire section `src/wire_payload.rs:76`-`:129` |
-| Double Ratchet | **Implemented**, including DH ratchet, skipped-key handling, AD v3 (with v2 fallback), and Suite 3 PQ epoch tags | `construct-core/src/crypto/messaging/double_ratchet/messaging.rs:307`-`:332`; `internals.rs:533`-`:554` |
+| Sparse continuous PQ ratchet (Suite 4; per-message chains, PQR-2, since core 0.24.0) | **Implemented and mandatory** wherever the `post-quantum` build feature is present (every platform build) since PQXDH v2, 2026-09-25 (core 0.18) — not bundle-negotiated; a first message on any other suite is refused (`PQXDH_REQUIRED`). Suite 3 (epoch-granular) is retired without a compatibility path | `construct-core/src/crypto/suite_id.rs`; `src/crypto/session_api.rs`; `src/orchestration/orchestrator.rs`; wire section `src/wire_payload.rs` |
+| Double Ratchet | **Implemented**, including DH ratchet, skipped-key handling, AD v3 (with v2 fallback), and Suite 4 PQ epoch/index tags | `construct-core/src/crypto/messaging/double_ratchet/messaging.rs`; `internals.rs` |
 | PKCS#7 length padding (mod 255) | **Implemented**, constant-time unpad | `construct-core/src/traffic_protection/padding.rs:96`-`:126` |
 | ACK deduplication store | **Implemented** | `construct-core/src/orchestration/ack_store.rs:83`-`:143` |
 | CFE binary envelope at FFI | **Implemented**, used by iOS / macOS / Android bindings | `construct-core/src/cfe/envelope.rs:8`-`:25`, `:48`-`:65` |
-| WirePayload binary frame | **Implemented**, little-endian fixed header + Suite 3 PQ section | `construct-core/src/wire_payload.rs:7`-`:17`, `:76`-`:129` |
+| WirePayload binary frame | **Implemented**, little-endian fixed header + Suite 4 PQ-ratchet section (LEB128 key index) | `construct-core/src/wire_payload.rs` |
 | MLS group chat (RFC 9420) | **Core present** (OpenMLS, ciphersuite `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`), **no shipping product surface**; design documented in [Chapter 12](./12-group-messaging.md), not yet a normative interop spec | `construct-core/src/group/mls_store.rs:1`-`:39` |
 | Argon2id proof-of-work | **Implemented** | `construct-core/src/pow.rs` |
 | Account recovery — BIP39 (12-word) + SLIP-39 social recovery | **Implemented.** BIP39 restores account access on a new device (recovery Ed25519 keypair, server holds only the public key); SLIP-39 threshold-restores the identity vault. See [Chapter 11](./11-account-recovery.md). | `construct-core/src/crypto/social_recovery.rs`; BIP39/BIP32 derivation in `construct-core` |
@@ -64,12 +64,28 @@ older internal TODO list was written.
 | `BS-3` | High | If no X25519 OPK is available at handshake time, the protocol falls back to 3-DH silently. Forward secrecy from the OPK contribution is lost; the user is not notified. The ML-KEM-1024 secret still enters the root key, so the first flight is not classical-only. | Surface a warning to the application layer. |
 | `DE-2` | Low | The map from a sealed copy's server-assigned id to the sender's own id, which a resend needs, is held in memory on both clients. A DECRYPTION_ERROR that arrives after the writer restarted retires the state but resends nothing. | Persist the map. |
 | `KT-1` | High | Key Transparency returns per-bundle inclusion proofs, but there is no public monitor endpoint, no in-practice consistency checking, and no STH gossip/auditor. A consistently equivocating server can still maintain a split view. | Publish monitor/consistency API, persist and compare STHs, and add gossip/auditor path. |
-| `PQR-1` | Medium | Suite 3 rekeys on a count of DH-ratchet turns with **no time-based floor**. A conversation that rarely changes direction can run indefinitely on a single ML-KEM epoch, and one that never alternates never rekeys at all — the condition Suite 3 exists to avoid. Both other deployed continuing designs bound this: Apple PQ3 guarantees a rekey at least every 7 days, Signal SPQR is continuous. See [Appendix B §B.3](./appendix-b-pq-comparison.md#b3-rekey-cadence). | Add a wall-clock floor alongside the turn counter, and start an exchange when either trips. |
-| `PQR-2` | Medium | Every message key in a Suite 3 epoch is derived from the same `pq_epoch_secret`; the post-quantum component does not ratchet between rekeys. Forward secrecy therefore has message granularity classically and epoch granularity post-quantum. Signal SPQR carries a symmetric chain inside its PQ component and does not have this asymmetry. See [Appendix B §B.6](./appendix-b-pq-comparison.md#b6-granularity-of-the-post-quantum-guarantee). | Ratchet the epoch secret per message (or per chain step) rather than storing it as a constant. |
 | `PQR-3` | Low | The ML-KEM-768 encapsulation key (1184 B) and ciphertext (1088 B) are carried whole and re-attached to **every** outgoing frame until implicitly acknowledged, so an unacknowledged exchange costs that much per message for its duration. Signal SPQR spreads both across Reed–Solomon-coded chunks instead, bounding per-message overhead. | Chunk the objects with a systematic erasure code, or bound re-attachment by a retry schedule. |
-| `PQR-4` | Low | `PQ_EPOCH_RETENTION = 4` completed epoch secrets are kept, while the skipped-message-key tolerance is 1000. A delivery reordered past four epochs is a hard decrypt error by design (no silent downgrade), so the two tolerances are set three orders of magnitude apart without a stated reason. | Justify the bound against observed reordering depth, or raise it to match the skipped-key window. |
+| `PQR-4` | Low | `PQ_CHAIN_RETENTION = 2` (the current epoch and the one before it) bounds how many epochs' chains are kept, and within a retained epoch a message is further bounded by the same skipped-key tolerance as the classical chain (1000 keys, a 2000-message jump, 7-day age — §5.8.1/§2.4.3). A delivery reordered past the retained epochs, or past those bounds within one, is a hard decrypt error by design (no silent downgrade). Since construct-core 0.24.0 (PQR-2) this is no longer an independently-sized epoch count set apart from the skipped-key tolerance — it *is* the skipped-key window — but whether that window itself is sized to real reordering depth is still unmeasured. | Measure observed reordering depth in production and confirm the shared bound covers it, or size it independently. |
 | `SEC-006` | Medium | The AD v2 → v3 graceful migration uses a fallback decrypt path. Once no v2 messages can be in flight, the fallback SHOULD be removed. | Remove `AD_VERSION_PREV` fallback after the in-flight window passes. |
 | `SEC-009` | Low | Session JSON (containing `dh_ratchet_private`, RK, chain keys) is stored in the platform key store but without an additional encryption-at-rest layer. If the OS key store is compromised, an attacker reads the session state. | Add wrap-with-master-key at the session-export boundary. |
+
+**Resolved since the previous revision:**
+
+- `PQR-1` — Suite 4 rekeyed only on a count of DH-ratchet turns, so a conversation that never
+  changed direction (one side always writing, the other always reading) never rekeyed at all.
+  construct-core 0.24.1 (2026-09-30) added a 7-day age floor: the exchange initiator proposes a
+  new epoch on its next send once the current one is that old, turns or not — matching the floor
+  Apple PQ3 guarantees. **Remaining gap:** only the exchange initiator ever proposes, so a
+  conversation in which only the *responder* writes still cannot rekey by either path; closing
+  that needs roles that alternate per epoch, a protocol change of its own, not a parameter. See
+  [Chapter 2 §2.4.3](./02-cryptographic-primitives.md#243-cadence-and-retention) and
+  [Appendix B §B.3](./appendix-b-pq-comparison.md#b3-rekey-cadence).
+- `PQR-2` — every message key in a Suite 3 PQ epoch was
+  derived from the same stored `pq_epoch_secret`, so the post-quantum half of the ratchet had
+  epoch, not message, forward-secrecy granularity. construct-core 0.24.0 (2026-09-30) replaced the
+  stored secret with two per-direction chains, stepped per message and never persisted (Suite 4);
+  see [Chapter 2 §2.4](./02-cryptographic-primitives.md#24-suite-4--sparse-continuous-pq-ratchet-per-message-chains)
+  and [Appendix B §B.6](./appendix-b-pq-comparison.md#b6-granularity-of-the-post-quantum-guarantee).
 
 Items listed as "Out of scope" in [Chapter 1 §1.2](./01-threat-model.md#out-of-scope-explicit-non-goals)
 are NOT on this list — they are not bugs, they are explicit
@@ -90,7 +106,7 @@ The reference includes:
 What is **not** covered today:
 
 - Full product-level multi-device interoperability coverage across all
-  sealed-sender, sender-sync, and Suite 3 cases.
+  sealed-sender, sender-sync, and Suite 4 cases.
 - Multi-node (two-VPS) federation interoperability test — federation is
   implemented with contract-level tests, but the two-server integration test
   is outstanding.

@@ -50,7 +50,7 @@ The X25519 and Ed25519 sizes are fixed by the underlying curves
 (Curve25519, Edwards25519). The ML-KEM-1024 sizes are fixed by NIST
 FIPS 203 (public key 1568 bytes, ciphertext 1568 bytes); the core keeps
 the secret as the 64-byte seed it was generated from. ML-KEM-768 appears
-only in the Suite 3 ratchet, never as a published prekey. The
+only in the Suite 4 ratchet, never as a published prekey. The
 hybrid signature sizes come from the implemented Ed25519 + ML-DSA-65
 format in `construct-core/src/crypto/suites/hybrid.rs:1`-`:51`.
 
@@ -191,12 +191,15 @@ Once X3DH completes (Chapter 4), the session state machine maintains:
 | MK_n | Per-message keys (32 B), derived from a chain key, used once, then deleted |
 | DHs, DHr | Local sending DH keypair and remote DH public |
 | Ns, Nr, PN | Sending counter, receiving counter, previous-chain length |
-| `current_pq_epoch`, PQ epoch secrets, pending PQ exchange/ciphertext | Suite 3 sparse continuous PQ ratchet state, absent or inert in Suite 1/2 |
+| `current_pq_epoch`, PQ epoch chains, PQ skipped keys, pending PQ exchange/ciphertext | Suite 4 sparse continuous PQ ratchet state (per-message chains, §2.4), absent or inert in Suite 1/2 |
 
 The Double Ratchet operations on these are specified in
-[Chapter 5](./05-message-encryption.md). Suite 3 state is persisted
-inside the CFE session-state payload as `CfePqRatchetStateV1`
-(`construct-core/src/cfe/types.rs:330`-`:418`). Per-message keys MUST
+[Chapter 5](./05-message-encryption.md). Suite 4 state is persisted
+inside the CFE session-state payload as `CfePqRatchetStateV2` (CFE field
+`pqr2`; `construct-core/src/cfe/types.rs`). The earlier `pqr` key
+(`CfePqRatchetStateV1`, one stored epoch secret) is retired with
+Suite 3 and ignored on an old blob rather than migrated — a suite-3
+session is not restored at all (§2.4). Per-message keys MUST
 be zeroed immediately after AEAD decrypt; the reference uses
 `zeroize::Zeroizing`.
 
@@ -254,7 +257,7 @@ PreKeyBundle ::=
     hybrid_identity_signature        : optional bytes  -- 64 B Ed25519 cross-signature
     signed_pre_key_hybrid_signature  : optional bytes  -- 3373 B
     kyber_pre_key_hybrid_signature   : optional bytes  -- 3373 B
-    supports_pq_ratchet              : bool            -- Suite 3 capability (unsigned)
+    supports_pq_ratchet              : bool            -- deprecated since PQXDH v2 (2026-09-25); ignored, field 24 kept only so the number is never reused
     kyber_pre_key_created_at                : optional u64    -- signed, field 25
     kyber_one_time_pre_key_signature        : optional bytes  -- field 26
     kyber_one_time_pre_key_created_at       : optional u64    -- signed, field 27
@@ -270,9 +273,12 @@ signature does not protect against the server.
 The current schema is message `PreKeyBundle` in
 `construct-server/shared/proto/services/key_service.proto` (fields 25–28
 added with PQXDH v2, 2026-09-25).
-`supports_pq_ratchet` is a capability flag: it allows a new session to
-negotiate core Suite 3, but it is not itself a protobuf `CryptoSuite`
-value.
+`supports_pq_ratchet` (field 24) was, before PQXDH v2, a capability flag that let a session
+negotiate the PQ ratchet. Since 2026-09-25 the PQ ratchet is mandatory wherever the core's
+`post-quantum` feature is built (§2.4) and nothing reads this field: a client MAY still send it
+for older servers, but a conforming server and client alike MUST ignore it. It is not removed
+from the schema, only deprecated — reusing field 24 for something else would let an old bundle's
+stale byte be misread by a new client.
 
 A bundle consumer MUST verify the SPK signature against the published
 Ed25519 verifying key before performing any DH against the SPK. A

@@ -92,7 +92,7 @@ Clients branch on the prefix, which is stable; the text after it is not.
 | Prefix / code | Raised when | Required handling |
 |---|---|---|
 | `PQ_REQUIRED` | The bundle yields no Kyber prekey the core can trust — any `PqxdhRefusal` (Chapter 4 §4.3). | No session. Do not retry classically; there is no classical path. A held state, if any, is left as it was. |
-| `PQ_DOWNGRADE_REFUSED` | The device advertised or used the Suite 3 PQ ratchet before and this bundle does not advertise it. | No session. Treat as tampering, not as a transition. |
+| `PQ_DOWNGRADE_REFUSED` | **Removed with PQXDH v2** (2026-09-25, construct-core 0.18). Was raised when a device that had advertised or used the PQ ratchet saw a bundle stop advertising the unsigned `supports_pq_ratchet` capability. That capability and its downgrade ledger were deleted the same commit that made the PQ ratchet mandatory wherever `post-quantum` is built — there is no longer a capability to withdraw, so this prefix is never produced by a current core. | — |
 | `SENDER_CERTIFICATE_REFUSED` / `SENDER_DEVICE_MISMATCH` | A sender certificate failed `identity_for_opening` (bad signature, key does not derive to the named device, expired past the delivery window), or names another device than the one the message was queued under. | Do not open from it. `NoTrustedKey` is transient: the open is retried once the server key is held. |
 | `KEM_IDENTITY_REQUIRED` | A first flight named no KEM identity key — a core older than the responder's proof of the initiator (Chapter 4 §4.4.4). | No session. Upgrade the sender. |
 | `KEM_IDENTITY_CHANGED` | A first flight named a KEM identity key other than the one pinned for the sending device. | No session; a held state is kept. Treat as an impersonation attempt, not a transition. |
@@ -138,15 +138,18 @@ rejection without any attempt to deserialise the payload.
 
 Raised by the WirePayload pack/unpack routines
 ([Chapter 6 §6.2](./06-transport.md#62-wire-format-wirepayload)).
-Defined in `construct-core/src/wire_payload.rs:288`-`:299`.
+Defined in `construct-core/src/wire_payload.rs` (`enum WirePayloadError`).
 
 | Tag | Variant | Condition |
 |---|---|---|
 | `WP-INVALID-DH` | `InvalidDhPublicKey(usize)` | The DH public key field is not exactly 32 bytes (X25519 Montgomery point). |
 | `WP-KEM-TOO-LARGE` | `KemTooLarge(usize)` | KEM ciphertext exceeds `u16::MAX` bytes (Suite 2 first-message reference value is 1088). |
-| `WP-PQ-FIELD-TOO-LARGE` | `PqFieldTooLarge(usize)` | Suite 3 PQ ratchet EK/CT field exceeds `u16::MAX` bytes. |
-| `WP-PQ-FIELD-TYPE` | `InvalidPqFieldType(u8)` | Suite 3 PQ section carries a field type other than `0`, `1`, or `2`. |
-| `WP-TOO-SHORT` | `TooShort(usize)` | Buffer is shorter than the 52-byte fixed header. |
+| `WP-PQ-FIELD-TOO-LARGE` | `PqFieldTooLarge(usize)` | Suite 4 PQ ratchet EK/CT field exceeds `u16::MAX` bytes. |
+| `WP-PQ-FIELD-TYPE` | `InvalidPqFieldType(u8)` | Suite 4 PQ section carries a field type other than `0`, `1`, or `2`. |
+| `WP-TOO-SHORT` | `TooShort(usize)` | Buffer is shorter than the 52-byte fixed header, or too short for a length it has already read (a KEM object, the PQ section, `pq_key_index`'s LEB128 bytes). |
+| `WP-RETIRED-SUITE` | `RetiredSuite(u16)` | `suite_id` (after stripping the flag bits) is `0x0003`, the epoch-granular PQ ratchet retired in construct-core 0.24.0 (PQR-2, §2.4). Checked before the PQ section is parsed, since that suite's frames have no `pq_key_index` field to parse. |
+| `WP-PQ-INDEX-NO-EPOCH` | `PqKeyIndexWithoutEpoch(u32)` | `pq_key_index` is non-zero while `pq_message_epoch = 0` — a key index without an epoch to belong to. |
+| `WP-PQ-INDEX-NONCANONICAL` | `NonCanonicalKeyIndex` | `pq_key_index`'s LEB128 encoding is not the unique minimal one: more than 5 bytes, a nonzero bit past bit 31, or a final byte that could have been omitted (e.g. `0x80 0x00` for `0`). The AD (§5.4) binds the decoded value, not its wire bytes, so a non-minimal encoding would let a relay re-encode the same value undetected. |
 
 A WirePayload that fails to parse MUST be dropped without affecting
 session state. The receiver MUST NOT advance its Double Ratchet on a
@@ -180,7 +183,7 @@ uniffi_bindings::CryptoError`).
 | `KeyGenerationError(String)` | RNG failure, dalek keypair generation rejected. |
 | `SigningError(String)` | Ed25519 sign failed (typically wraps `ed25519_dalek::SignatureError`). |
 | `SignatureVerificationError(String)` | Ed25519 verification failed. Includes the SPK signature check. |
-| `KemEncapsulationError(String)` | ML-KEM `Encapsulate` failed (ML-KEM-1024 at the handshake, ML-KEM-768 in Suite 3). |
+| `KemEncapsulationError(String)` | ML-KEM `Encapsulate` failed (ML-KEM-1024 at the handshake, ML-KEM-768 in Suite 4). |
 | `KemDecapsulationError(String)` | ML-KEM `Decapsulate` failed (malformed ciphertext or wrong key). |
 | `AeadEncryptionError(String)` | ChaCha20-Poly1305 seal failed (typically allocation). |
 | `AeadDecryptionError(String)` | ChaCha20-Poly1305 open failed — tag mismatch, wrong AD, wrong key. |
