@@ -41,13 +41,17 @@ which that same cutover removed.
   secret; only the recipient's Kyber prekey id and the ciphertext stay outside. `BF-1`
   corrected: the iOS client already fetches bundles over the sealed channel, the Android client
   does not. `PQC-1` narrows to two rare boxes. Wire-incompatible with core 0.26; sessions of it
-  still in their first flights are refused and renew.
+  still in their first flights are refused and renew. With it (0.27.1): an initiator does not
+  write on a handshake its peer has not answered in 7 days, so no first flight outlives the
+  prekey it was sealed to — handshake age 7 + queue 7 ≤ prekey retention 14, checked at compile
+  time. Retired envelope pairs are kept for the queue window, 7 days; the 30 written before was
+  the receipt-routing TTL, mistaken for the queue.
 - **The session envelope** (construct-core 0.26.0, 2026-10-01; Ch. 8, "Session envelope";
   `SealedInner.session_envelope = 21`). After first contact a sealed message carries no
   certificate and no readable wire payload. It carries an envelope keyed from the session's
   PQXDH v2 root, and the recipient finds who wrote it by a tag. Who sent an established-session
   message is post-quantum, and the server no longer sees the ratchet header that linked a
-  chain's messages. A pair outlives its ratchet (retired for 30 days), so a reader that reset
+  chain's messages. A pair outlives its ratchet (retired for the queue window), so a reader that reset
   still answers the writer along it. The coverage table and `PQC-1` are updated. New `BF-1`:
   the authenticated bundle fetch names a first message's sender to the server, which is why the
   first flight's box is not the next thing to make post-quantum. Wire-incompatible with core

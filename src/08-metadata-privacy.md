@@ -90,7 +90,7 @@ no counter to keep in step. When `session_envelope` is set,
 type is generic even for a DECRYPTION_ERROR.
 
 A pair outlives its ratchet state: a local reset or a deleted chat sends
-nothing, and the writer goes on writing. The pair is retired for 30 days
+nothing, and the writer goes on writing. The pair is retired for 7 days
 (the queue window), still names the writer, and the DECRYPTION_ERROR goes
 back along it. Decision: construct-docs
 `decisions/sealed-envelope-keyed-by-the-session.md`.
@@ -125,9 +125,12 @@ first) until the initiator proves itself. When `first_flight` is set,
 `sender_cert_ciphertext`, `encrypted_payload` and `session_envelope` are
 empty. Decision: construct-docs `decisions/first-flight-sealed-whole.md`.
 
-A first flight to a Kyber prekey the recipient no longer holds (a signed
-prekey is kept 14 days, the queue holds 30) cannot be opened, so its writer
-is not known and no DECRYPTION_ERROR answers it.
+A first flight to a Kyber prekey the recipient no longer holds could not be
+opened, its writer would not be known, and no DECRYPTION_ERROR would answer
+it. The timing rules out that case: a signed prekey is kept 14 days after
+rotation, the queue holds a message 7, and an initiator does not write on a
+handshake left unanswered for 7 days — it opens a new one
+(Chapter 3 §3.5, construct-core 0.27.1).
 
 **What stays classical.** A DECRYPTION_ERROR about a first message the
 recipient could not read goes in an X25519 box to the writer's identity key

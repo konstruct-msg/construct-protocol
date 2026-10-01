@@ -155,8 +155,15 @@ a v1 signature MUST NOT verify as v2. The protobuf field names still say
 
 The old secrets of a rotated SPK and KEM-SPK are kept for 14 days
 (`SPK_RETENTION_AFTER_ROTATION_SECS`, `crypto/keys.rs:18`): the relay
-queue holds a message for 7 days, and a handshake to the old key must
-still open.
+queue holds a message for 7 days (`QUEUE_TTL_SECS`, the server's
+`MESSAGE_TTL_DAYS`), and a handshake to the old key must still open.
+Since construct-core 0.27.1 an initiator does not write on a handshake its
+peer has not answered within 7 days (`MAX_UNANSWERED_HANDSHAKE_AGE_SECS`):
+it retires the state and opens a new one from a fresh bundle. The three
+numbers are one inequality, checked when the core compiles —
+handshake age + queue ≤ retention — because a first flight is sealed under
+its handshake's secret (Chapter 8, "First flight"), and one that outlives
+its prekey names no writer and gets no answer.
 
 ## 3.6 Ephemeral / one-time prekeys
 
