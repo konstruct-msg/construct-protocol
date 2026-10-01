@@ -25,7 +25,8 @@ which that same cutover removed.
   [Appendix A §A.4](./appendix-a-errors.md#a4-wirepayload-framing--wirepayloaderror)). Dropped
   now also means recorded and acknowledged, with nothing sent back; the core names it with the
   routing verdict `MalformedDropped`. Before, a malformed or retired-suite message got only an
-  error, was never acknowledged, and was redelivered until its queue expired.
+  error, which a client could not tell from "no decision": it was logged as undecided and left
+  no processed record (the stream cursor still moved past it).
 
 - **Calls are post-quantum** (2026-10-01, `PQC-4` resolved;
   [Ch. 10 §10.3](./10-calls.md), [Ch. 1 — Post-quantum coverage](./01-threat-model.md#post-quantum-coverage)).

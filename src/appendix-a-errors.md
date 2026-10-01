@@ -161,7 +161,8 @@ session state in it a DECRYPTION_ERROR could name. The reference core says so wi
 routing verdict, `MalformedDropped { message_id }` (construct-core 0.28.0), placed before the
 `NotifyError` that carries the reason. Until 0.28 the reason was the only answer, which a
 platform could not tell from "no decision": a suite-3 message from a device on an old build was
-neither recorded nor acknowledged, and came back until its queue expired (2026-10-01).
+logged as undecided and left no processed record (2026-10-01). The stream cursor still moved
+past it, so it was not redelivered.
 
 ## A.5 Padding errors — `PaddingError`
 
