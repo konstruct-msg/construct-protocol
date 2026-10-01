@@ -97,9 +97,11 @@ older internal TODO list was written.
   changed direction (one side always writing, the other always reading) never rekeyed at all.
   construct-core 0.24.1 (2026-09-30) added a 7-day age floor: the exchange initiator proposes a
   new epoch on its next send once the current one is that old, turns or not — matching the floor
-  Apple PQ3 guarantees. **Remaining gap:** only the exchange initiator ever proposes, so a
-  conversation in which only the *responder* writes still cannot rekey by either path; closing
-  that needs roles that alternate per epoch, a protocol change of its own, not a parameter. See
+  Apple PQ3 guarantees. **Resolved**: the gap this entry used to name — only the exchange
+  initiator proposes, so a conversation only the responder writes "cannot rekey" — does not
+  exist, because the initiator answers every message with a receipt through the session and that
+  receipt carries the proposal (core `68cd63c`, test only; Chapter 2 §2.4.4 rule 6 makes the
+  receipt normative). No role alternation is needed. See
   [Chapter 2 §2.4.3](./02-cryptographic-primitives.md#243-cadence-and-retention) and
   [Appendix B §B.3](./appendix-b-pq-comparison.md#b3-rekey-cadence).
 - `PQR-2` — every message key in a Suite 3 PQ epoch was

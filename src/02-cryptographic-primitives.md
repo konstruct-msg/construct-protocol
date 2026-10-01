@@ -394,10 +394,17 @@ alone; sixteen alternations do.
 > restored blob with no value for it is read as maximally old, so the next send proposes rather
 > than trusting an age it cannot know.
 >
-> **Still open:** only the exchange initiator ever proposes (single-initiator discipline, §2.4.4
-> rule — unchanged). A conversation in which only the *responder* writes still cannot rekey by
-> either path, because the side that could propose never sends. Closing that gap needs roles that
-> alternate per epoch — a protocol change of its own, not a parameter. See Chapter 7 §7.3.
+> **Corrected 2026-10-01** (construct-core `68cd63c`, test only). This note used to say the gap
+> was still open: only the exchange initiator proposes, so a conversation in which only the
+> *responder* writes could not rekey, and closing that needed roles that alternate per epoch. It
+> missed delivery receipts. The initiator answers every delivered message with a receipt sent
+> through the session (§2.4.4 rule 6), so its `encrypt` runs, the age check runs with it, and the
+> proposal rides on the receipt; the responder's next message carries the ciphertext and the next
+> receipt promotes the epoch
+> (`test_pqr1_a_responder_only_conversation_rekeys_through_the_initiators_receipts`).
+> Alternating roles would not have helped any case: every exchange needs both sides to send at
+> least once, whoever proposes. A peer that sends nothing at all — not even receipts — is a
+> device that is off, and no assignment of roles rekeys with it.
 
 A pending EK/CT field is attached by `encrypt` to *every* outgoing frame, which includes control
 frames such as delivery receipts. A peer that only sends receipts therefore both advances the
@@ -456,6 +463,14 @@ an independently-sized epoch count.
    for how this compares with other deployed designs — Suite 4 now matches Signal SPQR's
    granularity in kind, though not in mechanism (SPQR ratchets a symmetric chain seeded once per
    handshake; Suite 4 reseeds two chains from a fresh ML-KEM secret every epoch).
+
+6. **Every delivered message is answered through the session.** A client MUST answer each
+   message it decrypts with a delivery receipt (content type 14) encrypted on the same session,
+   and MUST NOT offer a setting that turns these off. With single-initiator discipline (rule 3)
+   this is what lets a conversation that only the responder writes reach a new epoch: the
+   initiator's receipts are its sends. A client that read without answering would leave such a
+   conversation on one epoch for as long as it ran. Several receipts MAY be batched into one
+   message (`DirectReceipt.message_ids` is repeated); what matters is that the initiator sends.
 
 ## 2.5 Randomness
 

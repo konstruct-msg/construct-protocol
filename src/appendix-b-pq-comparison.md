@@ -73,9 +73,9 @@ bounded only by how fast chunks can be carried.
 > of the three with no time-based floor: a one-sided conversation took no DH turn and so never
 > rekeyed, however long it ran. The exchange initiator now also proposes a new epoch on its next
 > send once the current one has stood for `pq_ratchet_max_age_seconds` (7 days) — the same floor
-> Apple PQ3 guarantees — independent of the turn count. The gap this does not close: only the
-> initiator ever proposes, so a conversation in which only the *responder* writes still cannot
-> rekey by either path (§2.4.3, Chapter 7 §7.3).
+> Apple PQ3 guarantees — independent of the turn count. A conversation in which only the
+> *responder* writes is covered too: the initiator's delivery receipts are its sends and carry the
+> proposal (Chapter 2 §2.4.3, §2.4.4 rule 6). Until 2026-10-01 this note said otherwise.
 
 ## B.4 Carrying the KEM objects
 

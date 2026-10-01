@@ -21,6 +21,18 @@ This revision also corrects a description that had been stale since PQXDH v2 (20
 0.18): the book still described the PQ ratchet as bundle-negotiated with a downgrade refusal,
 which that same cutover removed.
 
+- **PQR-1 has no remaining gap** (2026-10-01, construct-core `68cd63c`, test only;
+  [Ch. 2 §2.4.3](./02-cryptographic-primitives.md#243-cadence-and-retention),
+  [§2.4.4 rule 6](./02-cryptographic-primitives.md#244-normative-rules-for-the-sparse-exchange),
+  [Ch. 7 §7.3](./07-implementation-status.md#73-open-security-issues)). The book said a
+  conversation only the responder writes could not rekey and that closing it needed roles that
+  alternate per epoch. The initiator's delivery receipts are sends: they run the age check and
+  carry the proposal, so such a conversation reaches a new epoch in three round trips. Role
+  alternation would not have helped any case — every exchange needs both sides to send once.
+  New normative rule 6: a client answers every decrypted message with a receipt on the session
+  and offers no switch to turn receipts off; both clients already do, so no implementation
+  changes.
+
 - **What is and is not post-quantum, layer by layer** (2026-10-01,
   [Ch. 1 — Post-quantum coverage](./01-threat-model.md#post-quantum-coverage)). The threat model
   promised quantum-recording resistance "for sessions that used Suite 2 (PQXDH)" — a suite no
