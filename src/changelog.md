@@ -21,6 +21,12 @@ This revision also corrects a description that had been stale since PQXDH v2 (20
 0.18): the book still described the PQ ratchet as bundle-negotiated with a downgrade refusal,
 which that same cutover removed.
 
+- **A payload that does not parse is finished with** (2026-10-01, construct-core 0.28.0;
+  [Appendix A §A.4](./appendix-a-errors.md#a4-wirepayload-framing--wirepayloaderror)). Dropped
+  now also means recorded and acknowledged, with nothing sent back; the core names it with the
+  routing verdict `MalformedDropped`. Before, a malformed or retired-suite message got only an
+  error, was never acknowledged, and was redelivered until its queue expired.
+
 - **Calls are post-quantum** (2026-10-01, `PQC-4` resolved;
   [Ch. 10 §10.3](./10-calls.md), [Ch. 1 — Post-quantum coverage](./01-threat-model.md#post-quantum-coverage)).
   The DTLS handshake of a call is DTLS 1.3 with X25519MLKEM768: libwebrtc's field trial
