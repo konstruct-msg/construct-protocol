@@ -26,9 +26,16 @@ What Konstruct guarantees against this adversary:
 - Forward secrecy — recording today does not enable decryption later
   if a long-term key is later compromised.
 - Quantum-recording resistance — recording today does not enable
-  decryption later by a quantum-equipped attacker, **for sessions that
-  used Suite 2 (PQXDH)**. Suite 1-only sessions are vulnerable in this
-  scenario.
+  decryption later by a quantum-equipped attacker, **for the content of
+  one-to-one messages and of the attachments they carry**. Every
+  session is opened with PQXDH v2 (ML-KEM-1024), mandatory since
+  construct-core 0.18.0; there is no classical-only session to fall back
+  to. **This does not cover every layer:** who sent a sealed message,
+  calls, groups and several server-signed objects are still classical —
+  see [Post-quantum coverage](#post-quantum-coverage) below. Until
+  2026-10-01 this line promised the property "for sessions that used
+  Suite 2 (PQXDH)", a suite no session negotiates, and named no
+  exceptions.
 
 What Konstruct does **not** guarantee:
 
@@ -152,6 +159,34 @@ Konstruct does **not** defend against:
 - Coercion of the user. A protocol cannot stop a person from being
   forced to unlock their phone.
 
+## Post-quantum coverage
+
+"Post-quantum" in this specification means: an adversary who records
+traffic today and obtains a cryptographically relevant quantum computer
+later learns nothing protected by that layer. The table lists every
+layer that uses public-key cryptography, and whether it meets that bar
+today. Symmetric primitives (ChaCha20-Poly1305, AES-256-GCM,
+HKDF-SHA256) are not listed: at 256-bit keys they are not the weak point.
+
+| Layer | Post-quantum? | Mechanism | Source |
+|---|---|---|---|
+| 1:1 session handshake | **Yes** | PQXDH v2: an ML-KEM-1024 (Kyber-1024) secret in the root key beside X25519 ([04](./04-session-handshake.md)) | `construct-core/src/crypto/pq_x3dh.rs` |
+| 1:1 messages after the handshake | **Yes** | Suite 4: sparse continuous ML-KEM-768 (Kyber-768) ratchet, one post-quantum key per message ([02 §2.4](./02-cryptographic-primitives.md)). Gap: only the exchange initiator proposes a new epoch (§7.3) | `construct-core/src/crypto/messaging/double_ratchet/internals.rs` |
+| Attachments | **Yes**, through the message | AES-256-GCM, key carried inside the 1:1 message | client code (iOS `MediaManager`, Android `MediaRepository`) |
+| Prekey bundle authentication | **Yes** | Ed25519 + ML-DSA-65 (Dilithium-3) hybrid signatures, required before PQXDH | `construct-core/src/orchestration/pq_prekey_plan.rs:217` |
+| History transfer between own devices | **Yes** | Channel key from X25519 **and** ML-KEM | `construct-core/src/history/channel.rs:206` |
+| **Sealed sender: who sent a message** | **No** | The sender certificate is sealed to the recipient's identity key with X25519 only ([08](./08-metadata-privacy.md)). A recorded sealed message reveals its sender to a future quantum attacker; its content stays protected by the ratchet inside | `construct-core/src/crypto/sealed_sender/mod.rs:67`, `src/uniffi_bindings.rs:4486` |
+| **Other sealed boxes** | **No** | The same X25519 box: device metadata sealed to sibling devices, DECRYPTION_ERROR replies | `src/uniffi_bindings.rs:4508`, `src/orchestration/decryption_error.rs:120` |
+| **Server-signed objects** | **No** (authentication) | Sender certificates and Key Transparency tree heads are Ed25519. A future quantum attacker could forge them; it cannot use that to read recorded traffic. After first contact a peer is held by its pinned KEM identity key, not the certificate ([04](./04-session-handshake.md)) | `src/crypto/sealed_sender/mod.rs:171`, `src/crypto/key_transparency.rs:9` |
+| **Device and recovery authentication to the server** | **No** (authentication) | Ed25519 device signatures and the Ed25519 recovery key derived from the seed phrase ([11](./11-account-recovery.md)). A forgery would act on the account at the server; it does not decrypt messages | `src/crypto/keys.rs:451`, `src/crypto/recovery.rs:92` |
+| **Calls** | **No** | WebRTC DTLS-SRTP with an ECDHE handshake ([10](./10-calls.md)). A recorded call can be decrypted later | libwebrtc, not construct-core |
+| **Group messaging (MLS)** | **No** | `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` ([12](./12-group-messaging.md)); no shipping product surface | `src/group/mls_store.rs:39` |
+| **Privacy Pass tokens** | **No** (anti-abuse only) | VOPRF over Ristretto255 ([09](./09-privacy-pass.md)). A quantum attacker could mint tokens; blinding still keeps a redeemed token unlinkable to its issuance | `src/crypto/privacy_pass/mod.rs` |
+| **Transport TLS** | **Not established** | VEIL and QUIC use rustls with the `ring` provider, which offers no hybrid key exchange. The iOS direct gRPC path uses the system TLS stack, whose hybrid support has not been verified against the server ([06](./06-transport.md)). TLS is not what keeps message content confidential either way | `construct-transport/Cargo.toml:22` |
+
+The rows marked **No** are tracked as `PQC-1`…`PQC-6` in
+[Chapter 7 §7.3](./07-implementation-status.md#73-open-security-issues).
+
 ## Security goals — formal statement
 
 | Goal | Mechanism (chapter) | Guaranteed against |
@@ -161,8 +196,8 @@ Konstruct does **not** defend against:
 | Forward secrecy | Per-message key derivation + chain key eviction ([05](./05-message-encryption.md)) | Historical device compromise |
 | Post-compromise security | DH ratchet step after one round-trip ([05](./05-message-encryption.md)) | Network compromise of a single session |
 | Replay resistance | Two-layer dedup: protocol (Double Ratchet message number) + application (ACK store) ([05](./05-message-encryption.md)) | Network |
-| Post-quantum confidentiality | Hybrid PQXDH KEM ([04](./04-session-handshake.md)) | A future quantum-equipped attacker replaying recorded traffic |
-| Identity unforgeability | Ed25519 signatures over prekey bundles ([03](./03-identity-key-hierarchy.md)) | Network, server |
+| Post-quantum confidentiality of 1:1 content | PQXDH v2 (ML-KEM-1024) and the Suite 4 ratchet (ML-KEM-768) ([04](./04-session-handshake.md), [02](./02-cryptographic-primitives.md)) — not every layer, see [Post-quantum coverage](#post-quantum-coverage) | A future quantum-equipped attacker replaying recorded traffic |
+| Identity unforgeability | Ed25519 + ML-DSA-65 hybrid signatures over prekey bundles ([03](./03-identity-key-hierarchy.md)) | Network, server |
 
 ## Trust assumptions
 

@@ -24,10 +24,16 @@ Concretely:
   `Dilithium-3`). Never use informal names alone — they are
   ambiguous about variant (e.g. Kyber-512 / Kyber-768 / Kyber-1024).
   Specifically, since PQXDH v2 (2026-09-25): **prekeys and the handshake
-  use ML-KEM-1024; ML-KEM-768 appears only in the Suite 3 ratchet.** Both
-  are deployed, so an unqualified "ML-KEM" is ambiguous here too — name the
-  parameter set and the role. This line said "ML-KEM-768, not Kyber-1024"
-  until 2026-09-28; it was true until the cutover and then was not.
+  use ML-KEM-1024; ML-KEM-768 appears only in the Suite 4 ratchet** (Suite 3
+  until construct-core 0.24.0). Both are deployed, so an unqualified "ML-KEM"
+  is ambiguous here too — name the parameter set and the role. This line said
+  "ML-KEM-768, not Kyber-1024" until 2026-09-28; it was true until the cutover
+  and then was not.
+- **"Post-quantum" names a layer, never the product.** The content of 1:1
+  messages is post-quantum; several layers around it are not (Chapter 1,
+  "Post-quantum coverage"). A sentence that says Konstruct "is" post-quantum
+  without saying which layer is wrong, and a new layer is added to that table
+  in the same change that describes it.
   Verify against `construct-core/src/crypto/pq_x3dh.rs` before writing either.
 - **Implementation status claims**: must cite the source file and line.
 - **Things not yet in code**: must be explicitly marked as "designed"

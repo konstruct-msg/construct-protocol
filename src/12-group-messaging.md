@@ -25,7 +25,7 @@ tree, so adding/removing a member and healing after a compromise are
 
 - MLS ciphersuite:
   **`MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`**
-  (`construct-core/src/group/mod.rs`) — DHKEM-X25519 for the ratchet-tree
+  (`construct-core/src/group/mls_store.rs:39`) — DHKEM-X25519 for the ratchet-tree
   HPKE, AES-128-GCM as the group AEAD, SHA-256 as the hash, Ed25519 for
   signatures. This is a standard RFC 9420 ciphersuite; interoperability is
   a design goal.
@@ -34,7 +34,8 @@ tree, so adding/removing a member and healing after a compromise are
   `group` module. Konstruct does not re-implement the MLS state machine.
 
 Post-quantum note: this ciphersuite is classical (X25519/Ed25519). A hybrid
-PQ MLS ciphersuite is future work and is **not** part of the current design.
+PQ MLS ciphersuite is future work and is **not** part of the current design;
+it has to be chosen before groups ship (`PQC-5`, [Chapter 7 §7.3](./07-implementation-status.md#73-open-security-issues)).
 
 ## 12.3 Group state model
 

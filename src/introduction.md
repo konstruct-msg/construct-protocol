@@ -35,6 +35,11 @@ handshake + Double Ratchet for ongoing messaging — extended with:
 - A sparse continuous post-quantum ratchet (Suite 4) that adds new
   ML-KEM-768 contributions after session establishment, one derived key
   per message since construct-core 0.24.0 (§2.4).
+
+  Post-quantum protection covers the **content** of one-to-one messages
+  and attachments. Who sent a sealed message, calls and groups are still
+  classical; [Threat Model — Post-quantum coverage](./01-threat-model.md#post-quantum-coverage)
+  lists every layer.
 - Metadata-minimising sealed sender, backed by Privacy Pass tokens for
   abuse resistance.
 - A pluggable transport layer (**VEIL**) designed to keep the messenger

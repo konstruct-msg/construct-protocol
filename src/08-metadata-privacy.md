@@ -62,6 +62,14 @@ SealedInner {                   // read by the destination server
 compatibility. They are server-visible metadata leaks and the server
 MUST NOT use them for routing, priority, notification text, or UI
 (`construct-server/shared/proto/core/envelope.proto:386`-`:418`).
+
+**Not post-quantum.** `sender_cert_ciphertext` is an X25519-only box
+(`construct-core/src/crypto/sealed_sender/mod.rs:67`). Sealed sender hides
+the sender from the server today, but an adversary who records sealed
+traffic and later breaks X25519 learns who sent each message. What the
+message says stays protected: `encrypted_payload` is the Double Ratchet
+ciphertext with its post-quantum keys (Chapters 2 and 5). Tracked as
+`PQC-1` ([Chapter 7 §7.3](./07-implementation-status.md#73-open-security-issues)).
 New normal sealed sends leave `content_type` at `UNSPECIFIED = 0`,
 which proto3 omits from the wire. The real application content type
 rides inside the encrypted payload, currently as KNST byte 5 on framed

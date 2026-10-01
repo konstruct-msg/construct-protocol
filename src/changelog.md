@@ -21,6 +21,22 @@ This revision also corrects a description that had been stale since PQXDH v2 (20
 0.18): the book still described the PQ ratchet as bundle-negotiated with a downgrade refusal,
 which that same cutover removed.
 
+- **What is and is not post-quantum, layer by layer** (2026-10-01,
+  [Ch. 1 — Post-quantum coverage](./01-threat-model.md#post-quantum-coverage)). The threat model
+  promised quantum-recording resistance "for sessions that used Suite 2 (PQXDH)" — a suite no
+  session negotiates — and named no exception. It now says what is true: the content of
+  one-to-one messages and attachments is protected, every session being PQXDH v2. It also lists
+  the layers that are still classical: the sealed-sender box (who sent a message), other X25519
+  sealed boxes, server-signed certificates and tree heads, device and recovery authentication,
+  calls (DTLS-SRTP), MLS groups, Privacy Pass, and transport TLS (not established). Each one has
+  a source line and a §7.3 row, `PQC-1`…`PQC-6`. Chapters 8, 10 and 12 and the introduction say
+  the same where they describe those layers. The "Identity unforgeability" goal names the hybrid
+  Ed25519 + ML-DSA-65 bundle signatures that PQXDH requires, not Ed25519 alone.
+- **§7.3 brought up to date** (2026-10-01). `SEC-006` resolved (construct-core 0.24.2: the AD v2
+  fallback decrypt removed); `DE-2` resolved (the sealed-copy id map is persisted on both
+  clients); `PQR-4` now describes the loss it is about and the measurement that will settle it
+  (construct-core 0.25.0, `ReorderStats`); `SEC-009` says CFE records, not session JSON.
+
 - **The post-quantum half of the ratchet gets per-message forward secrecy**
   ([Ch. 2 §2.4](./02-cryptographic-primitives.md#24-suite-4--sparse-continuous-pq-ratchet-per-message-chains),
   [Ch. 5 §5.1](./05-message-encryption.md#51-session-state),

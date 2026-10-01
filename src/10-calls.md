@@ -72,6 +72,12 @@ application-layer media re-encryption (e.g. SFrame) is required for the
 two-party case; SFrame would only be needed for a future group/SFU
 topology where a server forwards media.
 
+This protection is classical. The fingerprints are authenticated by the
+post-quantum session, but the SRTP keys themselves come from the DTLS
+ECDHE handshake, which a recording adversary with a future quantum
+computer can break. Message content does not share this limit; calls do
+(`PQC-4`, [Chapter 7 §7.3](./07-implementation-status.md#73-open-security-issues)).
+
 Neither the Konstruct server nor a TURN relay used for NAT traversal can
 decrypt the media: a TURN relay forwards only opaque SRTP.
 
@@ -85,7 +91,7 @@ DTLS-SRTP-encrypted:
 | That a call is being set up, and its timing | The signal exchange and TURN-credential fetch are observable as events (sealed, but present). |
 | Participants' **network addresses** | ICE exchanges candidate IP:port pairs so the devices can find a path; a TURN relay sees both peers' addresses. This is connection metadata, not call content. |
 | Media **timing / volume** | Inherent to real-time media; not hidden. |
-| Call **content** (audio/video) | Not exposed — DTLS-SRTP, keyed via E2EE signalling. |
+| Call **content** (audio/video) | Not exposed today — DTLS-SRTP, keyed via E2EE signalling. **Not post-quantum:** the DTLS key exchange is ECDHE, so a recorded call can be decrypted by a future quantum attacker (`PQC-4`). |
 
 Because ICE reveals network addresses to establish direct connectivity, a
 privacy-maximising user who wants to hide their address from the peer or a
