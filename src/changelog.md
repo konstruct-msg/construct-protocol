@@ -21,6 +21,14 @@ This revision also corrects a description that had been stale since PQXDH v2 (20
 0.18): the book still described the PQ ratchet as bundle-negotiated with a downgrade refusal,
 which that same cutover removed.
 
+- **Calls are post-quantum** (2026-10-01, `PQC-4` resolved;
+  [Ch. 10 §10.3](./10-calls.md), [Ch. 1 — Post-quantum coverage](./01-threat-model.md#post-quantum-coverage)).
+  The DTLS handshake of a call is DTLS 1.3 with X25519MLKEM768: libwebrtc's field trial
+  `WebRTC-EnableDtlsPqc`, turned on by the iOS client on webrtc-sdk 150.7871.01. Observed on the
+  wire: key shares of 1216 and 1120 bytes. Not frame encryption: for a two-party call the DTLS
+  exchange is what keys the media, and it now needs ML-KEM-768 broken as well as X25519. Limit:
+  the endpoints choose the group, and a peer without the trial gets X25519 silently.
+
 - **PQR-1 has no remaining gap** (2026-10-01, construct-core `68cd63c`, test only;
   [Ch. 2 §2.4.3](./02-cryptographic-primitives.md#243-cadence-and-retention),
   [§2.4.4 rule 6](./02-cryptographic-primitives.md#244-normative-rules-for-the-sparse-exchange),

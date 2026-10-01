@@ -72,11 +72,31 @@ application-layer media re-encryption (e.g. SFrame) is required for the
 two-party case; SFrame would only be needed for a future group/SFU
 topology where a server forwards media.
 
-This protection is classical. The fingerprints are authenticated by the
-post-quantum session, but the SRTP keys themselves come from the DTLS
-ECDHE handshake, which a recording adversary with a future quantum
-computer can break. Message content does not share this limit; calls do
-(`PQC-4`, [Chapter 7 §7.3](./07-implementation-status.md#73-open-security-issues)).
+The DTLS handshake is post-quantum since 2026-10-01 (iOS, construct-ios `008c7f80`): DTLS 1.3
+with the hybrid key exchange X25519MLKEM768, so the SRTP keys come from a secret a recording
+adversary needs both X25519 and ML-KEM-768 to recover. libwebrtc carries the group behind the
+field trial `WebRTC-EnableDtlsPqc`, which the client turns on before it builds its
+peer-connection factory (webrtc-sdk 150.7871.01). The fingerprints that authenticate the
+handshake travel in the SDP, inside the post-quantum session, so an active attacker cannot steer
+the group down without replacing a fingerprint.
+
+Observed on the wire (two clients, 2026-10-01): ClientHello `supported_versions` DTLS 1.3, key
+shares X25519MLKEM768 (1216 bytes) and X25519 (32 bytes); ServerHello X25519MLKEM768 (1120 bytes);
+`TLS_AES_128_GCM_SHA256`.
+
+Limits:
+
+- The group is chosen by the two endpoints. A peer whose build does not set the trial agrees on
+  X25519 alone, silently — libwebrtc does not expose the negotiated group to the application, so
+  the client cannot refuse such a call. Both current builds set it; the Android client has no
+  calls yet and will set it when it does.
+- A test (`WebRTCFieldTrialsTests`) fails if a WebRTC update removes the trial from the binary;
+  that is the only warning such an update would give.
+- Video, when it ships, rides the same DTLS-SRTP transport and is covered without further work.
+
+> **Changed 2026-10-01** (`PQC-4`). Until then this section said the protection was classical:
+> the fingerprints were authenticated by the post-quantum session, but the SRTP keys came from
+> an ECDHE-only DTLS handshake a future quantum computer could break.
 
 Neither the Konstruct server nor a TURN relay used for NAT traversal can
 decrypt the media: a TURN relay forwards only opaque SRTP.
@@ -91,7 +111,7 @@ DTLS-SRTP-encrypted:
 | That a call is being set up, and its timing | The signal exchange and TURN-credential fetch are observable as events (sealed, but present). |
 | Participants' **network addresses** | ICE exchanges candidate IP:port pairs so the devices can find a path; a TURN relay sees both peers' addresses. This is connection metadata, not call content. |
 | Media **timing / volume** | Inherent to real-time media; not hidden. |
-| Call **content** (audio/video) | Not exposed today — DTLS-SRTP, keyed via E2EE signalling. **Not post-quantum:** the DTLS key exchange is ECDHE, so a recorded call can be decrypted by a future quantum attacker (`PQC-4`). |
+| Call **content** (audio/video) | Not exposed — DTLS-SRTP, keyed via E2EE signalling. Post-quantum since 2026-10-01: the DTLS 1.3 key exchange is X25519MLKEM768 (§10.3), unless the peer's build does not offer it. |
 
 Because ICE reveals network addresses to establish direct connectivity, a
 privacy-maximising user who wants to hide their address from the peer or a

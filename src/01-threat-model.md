@@ -30,9 +30,11 @@ What Konstruct guarantees against this adversary:
   one-to-one messages and of the attachments they carry**. Every
   session is opened with PQXDH v2 (ML-KEM-1024), mandatory since
   construct-core 0.18.0; there is no classical-only session to fall back
-  to. **This does not cover every layer:** who sent a sealed message,
-  calls, groups and several server-signed objects are still classical —
-  see [Post-quantum coverage](#post-quantum-coverage) below. Until
+  to. Who sent a message (the sealed envelope, and the first message of a
+  session sealed whole) and the media of calls (DTLS 1.3 with
+  X25519MLKEM768) are covered too. **This does not cover every layer:**
+  groups, several server-signed objects and some sealed boxes are still
+  classical — see [Post-quantum coverage](#post-quantum-coverage) below. Until
   2026-10-01 this line promised the property "for sessions that used
   Suite 2 (PQXDH)", a suite no session negotiates, and named no
   exceptions.
@@ -180,7 +182,7 @@ HKDF-SHA256) are not listed: at 256-bit keys they are not the weak point.
 | **Other sealed boxes** | **Partly** | A DECRYPTION_ERROR about an enveloped message goes back along the session envelope (post-quantum). One about a failed first message, and device metadata sealed to sibling devices, are still the X25519 box | `src/orchestration/decryption_error.rs:120`, `src/uniffi_bindings.rs:4508` |
 | **Server-signed objects** | **No** (authentication) | Sender certificates and Key Transparency tree heads are Ed25519. A future quantum attacker could forge them; it cannot use that to read recorded traffic. After first contact a peer is held by its pinned KEM identity key, not the certificate ([04](./04-session-handshake.md)) | `src/crypto/sealed_sender/mod.rs:171`, `src/crypto/key_transparency.rs:9` |
 | **Device and recovery authentication to the server** | **No** (authentication) | Ed25519 device signatures and the Ed25519 recovery key derived from the seed phrase ([11](./11-account-recovery.md)). A forgery would act on the account at the server; it does not decrypt messages | `src/crypto/keys.rs:451`, `src/crypto/recovery.rs:92` |
-| **Calls** | **No** | WebRTC DTLS-SRTP with an ECDHE handshake ([10](./10-calls.md)). A recorded call can be decrypted later | libwebrtc, not construct-core |
+| **Calls** | **Yes** (since 2026-10-01) | DTLS 1.3 with X25519MLKEM768 for the SRTP keys ([10](./10-calls.md)). Chosen by the two endpoints: a peer whose build does not offer the group gets X25519 alone, and the app cannot see which was agreed | libwebrtc field trial `WebRTC-EnableDtlsPqc`, construct-ios `WebRTCSession.swift` |
 | **Group messaging (MLS)** | **No** | `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519` ([12](./12-group-messaging.md)); no shipping product surface | `src/group/mls_store.rs:39` |
 | **Privacy Pass tokens** | **No** (anti-abuse only) | VOPRF over Ristretto255 ([09](./09-privacy-pass.md)). A quantum attacker could mint tokens; blinding still keeps a redeemed token unlinkable to its issuance | `src/crypto/privacy_pass/mod.rs` |
 | **Transport TLS** | **Not established** | VEIL and QUIC use rustls with the `ring` provider, which offers no hybrid key exchange. The iOS direct gRPC path uses the system TLS stack, whose hybrid support has not been verified against the server ([06](./06-transport.md)). TLS is not what keeps message content confidential either way | `construct-transport/Cargo.toml:22` |
