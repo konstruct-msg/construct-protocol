@@ -55,6 +55,7 @@ SealedInner {                   // read by the destination server
   token_nonce           : bytes    // Privacy Pass (optional, §8.5)
   token_bytes           : bytes
   token_spend_id        : bytes    // optional logical-message spend id
+  session_envelope      : bytes    // field 21, construct-core 0.26 — see "Session envelope" below
 }
 ```
 
@@ -63,13 +64,44 @@ compatibility. They are server-visible metadata leaks and the server
 MUST NOT use them for routing, priority, notification text, or UI
 (`construct-server/shared/proto/core/envelope.proto:386`-`:418`).
 
-**Not post-quantum.** `sender_cert_ciphertext` is an X25519-only box
-(`construct-core/src/crypto/sealed_sender/mod.rs:67`). Sealed sender hides
-the sender from the server today, but an adversary who records sealed
-traffic and later breaks X25519 learns who sent each message. What the
-message says stays protected: `encrypted_payload` is the Double Ratchet
-ciphertext with its post-quantum keys (Chapters 2 and 5). Tracked as
-`PQC-1` ([Chapter 7 §7.3](./07-implementation-status.md#73-open-security-issues)).
+### Session envelope (construct-core 0.26)
+
+Once two devices hold a session, a sealed message carries neither a
+certificate nor a readable wire payload. It carries `session_envelope`
+(`construct-core/src/crypto/sealed_sender/envelope.rs`):
+
+```text
+keys(s→r) = HKDF-SHA256(salt = ∅, ikm = SK,
+                        info = "construct-envelope-v1" ‖ 0x00 ‖ s ‖ 0x00 ‖ r, 64)
+          = k_env ‖ k_tag                     s, r: sender and recipient device ids
+envelope  = nonce(12) ‖ tag(16) ‖ ChaCha20-Poly1305(k_env, nonce, kind ‖ body, ad = tag)
+tag       = HMAC-SHA256(k_tag, nonce)[..16]
+kind      = 0x01 wire payload | 0x02 DECRYPTION_ERROR
+```
+
+`SK` is the session's PQXDH v2 root, which includes an ML-KEM-1024 secret.
+The recipient computes the tag under each key pair it holds — kept in an
+*envelope book* beside the sessions, because sessions are restored lazily
+(`sealed_sender/book.rs`) — and the pair that matches names the writer.
+The tag is a PRF output on a random nonce, so it links nothing; there is
+no counter to keep in step. When `session_envelope` is set,
+`sender_cert_ciphertext` and `encrypted_payload` are empty, and the outer
+type is generic even for a DECRYPTION_ERROR.
+
+A pair outlives its ratchet state: a local reset or a deleted chat sends
+nothing, and the writer goes on writing. The pair is retired for 30 days
+(the queue window), still names the writer, and the DECRYPTION_ERROR goes
+back along it. Decision: construct-docs
+`decisions/sealed-envelope-keyed-by-the-session.md`.
+
+**What stays classical.** The first flight of a session still carries the
+certificate in an X25519 box (`sealed_sender/mod.rs:67`): the recipient
+has no session yet to find a tag in. Making that box post-quantum would
+protect little today. The bundle the first message was built from was
+fetched over an authenticated call, so the server already knows who asked
+for which one-time prekey, and the first message carries that prekey's id
+in its clear header (§8.7, `BF-1`). Tracked as `PQC-1`
+([Chapter 7 §7.3](./07-implementation-status.md#73-open-security-issues)).
 New normal sealed sends leave `content_type` at `UNSPECIFIED = 0`,
 which proto3 omits from the wire. The real application content type
 rides inside the encrypted payload, currently as KNST byte 5 on framed
@@ -257,7 +289,8 @@ still observe the following. This is the honest counterpart to §8.1.
 | Metadata | Visible? | Note |
 |---|---|---|
 | Message **content** | No | End-to-end encrypted; key material is not on the server. |
-| **Sender** identity (per message) | No (sealed) | Only inside the recipient-encrypted certificate. |
+| **Sender** identity (per message) | No (sealed) | After first contact, only the recipient's session pair names it (session envelope). |
+| **Sender** of a session's **first** message | **Yes, by correlation** | The bundle fetch is authenticated: the server knows who was handed which one-time prekey, and the first message names that prekey in its clear header (`BF-1`). |
 | **Recipient** identity + timing | **Yes** | Required to deliver; `SealedInner.recipient_user_id`. |
 | Message **kind** (`content_type`) | No for ordinary sealed traffic | Only the deprecated/structural exceptions 21 and 24 may appear before decryption; normal sealed traffic leaves the field absent. |
 | Ciphertext **size after padding**, volume | **Yes** | Padding buckets blunt but do not erase this. |

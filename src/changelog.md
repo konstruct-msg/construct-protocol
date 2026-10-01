@@ -32,6 +32,16 @@ which that same cutover removed.
   a source line and a §7.3 row, `PQC-1`…`PQC-6`. Chapters 8, 10 and 12 and the introduction say
   the same where they describe those layers. The "Identity unforgeability" goal names the hybrid
   Ed25519 + ML-DSA-65 bundle signatures that PQXDH requires, not Ed25519 alone.
+- **The session envelope** (construct-core 0.26.0, 2026-10-01; Ch. 8, "Session envelope";
+  `SealedInner.session_envelope = 21`). After first contact a sealed message carries no
+  certificate and no readable wire payload. It carries an envelope keyed from the session's
+  PQXDH v2 root, and the recipient finds who wrote it by a tag. Who sent an established-session
+  message is post-quantum, and the server no longer sees the ratchet header that linked a
+  chain's messages. A pair outlives its ratchet (retired for 30 days), so a reader that reset
+  still answers the writer along it. The coverage table and `PQC-1` are updated. New `BF-1`:
+  the authenticated bundle fetch names a first message's sender to the server, which is why the
+  first flight's box is not the next thing to make post-quantum. Wire-incompatible with core
+  ≤ 0.25; stored sessions from it are refused and renew on the next send.
 - **§7.3 brought up to date** (2026-10-01). `SEC-006` resolved (construct-core 0.24.2: the AD v2
   fallback decrypt removed); `DE-2` resolved (the sealed-copy id map is persisted on both
   clients); `PQR-4` now describes the loss it is about and the measurement that will settle it
