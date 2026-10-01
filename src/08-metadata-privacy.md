@@ -56,6 +56,7 @@ SealedInner {                   // read by the destination server
   token_bytes           : bytes
   token_spend_id        : bytes    // optional logical-message spend id
   session_envelope      : bytes    // field 21, construct-core 0.26 — see "Session envelope" below
+  first_flight          : bytes    // field 22, construct-core 0.27 — see "First flight" below
 }
 ```
 
@@ -94,13 +95,44 @@ nothing, and the writer goes on writing. The pair is retired for 30 days
 back along it. Decision: construct-docs
 `decisions/sealed-envelope-keyed-by-the-session.md`.
 
-**What stays classical.** The first flight of a session still carries the
-certificate in an X25519 box (`sealed_sender/mod.rs:67`): the recipient
-has no session yet to find a tag in. Making that box post-quantum would
-protect little today. The bundle the first message was built from was
-fetched over an authenticated call, so the server already knows who asked
-for which one-time prekey, and the first message carries that prekey's id
-in its clear header (§8.7, `BF-1`). Tracked as `PQC-1`
+### First flight (construct-core 0.27)
+
+Until the peer answers, the recipient has no session to find a tag in, and
+every message the initiator writes carries the PQXDH v2 header: the prekey
+ids, the ML-KEM-1024 ciphertext and the initiator's ML-KEM identity key.
+That key is the same on every first flight a device writes, so in the clear
+it names the sender (`FF-1`, resolved). Such a message carries
+`first_flight` (`construct-core/src/crypto/sealed_sender/first_flight.rs`):
+
+```text
+first_flight = BE32(kyber_prekey_id) ‖ kem_ciphertext ‖ eph(32) ‖ nonce(12)
+               ‖ ChaCha20-Poly1305(k_first, nonce, body, ad = everything before nonce)
+body         = BE16(len certificate) ‖ certificate ‖ wire payload without kem_ciphertext
+ff_key       = HKDF-SHA256(salt = ∅, ikm = SS_mlkem, info = "construct-first-flight-v1")
+k_first      = HKDF-SHA256(salt = "ConstructSEALED-first-v1",
+                           ikm  = X25519(eph, IK_recipient) ‖ ff_key,
+                           info = eph ‖ SHA-256(kem_ciphertext))
+```
+
+Outside stay only the recipient's Kyber prekey id and the ciphertext to it,
+which the recipient needs to derive the key and which name only the
+recipient. The handshake's encapsulation keys both the box and the session
+root, under different labels. The box costs six bytes over the certificate
+and payload it carries. `ff_key` is kept beside the session's envelope pair:
+the initiator seals with it until answered, and the responder opens the
+later first flights with it (their one-time Kyber prekey was burned by the
+first) until the initiator proves itself. When `first_flight` is set,
+`sender_cert_ciphertext`, `encrypted_payload` and `session_envelope` are
+empty. Decision: construct-docs `decisions/first-flight-sealed-whole.md`.
+
+A first flight to a Kyber prekey the recipient no longer holds (a signed
+prekey is kept 14 days, the queue holds 30) cannot be opened, so its writer
+is not known and no DECRYPTION_ERROR answers it.
+
+**What stays classical.** A DECRYPTION_ERROR about a first message the
+recipient could not read goes in an X25519 box to the writer's identity key
+(`sealed_sender/mod.rs:67`), and device metadata goes to siblings the same
+way. Tracked as `PQC-1`
 ([Chapter 7 §7.3](./07-implementation-status.md#73-open-security-issues)).
 New normal sealed sends leave `content_type` at `UNSPECIFIED = 0`,
 which proto3 omits from the wire. The real application content type
@@ -290,7 +322,7 @@ still observe the following. This is the honest counterpart to §8.1.
 |---|---|---|
 | Message **content** | No | End-to-end encrypted; key material is not on the server. |
 | **Sender** identity (per message) | No (sealed) | After first contact, only the recipient's session pair names it (session envelope). |
-| **Sender** of a session's **first** message | **Yes, by correlation** | The bundle fetch is authenticated: the server knows who was handed which one-time prekey, and the first message names that prekey in its clear header (`BF-1`). |
+| **Sender** of a session's **first** message | No (sealed whole, construct-core 0.27) | The certificate and the handshake header are inside the first-flight box. The Android client still fetches bundles over an authenticated call, so the Kyber prekey id left outside can tie its first contacts to the account (`BF-1`). The bundle fetch and the send share a connection address — the network-adversary non-goal. |
 | **Recipient** identity + timing | **Yes** | Required to deliver; `SealedInner.recipient_user_id`. |
 | Message **kind** (`content_type`) | No for ordinary sealed traffic | Only the deprecated/structural exceptions 21 and 24 may appear before decryption; normal sealed traffic leaves the field absent. |
 | Ciphertext **size after padding**, volume | **Yes** | Padding buckets blunt but do not erase this. |

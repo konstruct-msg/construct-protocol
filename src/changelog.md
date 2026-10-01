@@ -32,6 +32,16 @@ which that same cutover removed.
   a source line and a §7.3 row, `PQC-1`…`PQC-6`. Chapters 8, 10 and 12 and the introduction say
   the same where they describe those layers. The "Identity unforgeability" goal names the hybrid
   Ed25519 + ML-DSA-65 bundle signatures that PQXDH requires, not Ed25519 alone.
+- **The first flight sealed whole** (construct-core 0.27.0, 2026-10-01; Ch. 8, "First flight";
+  `SealedInner.first_flight = 22`). Found while preparing the anonymous bundle fetch: until the
+  peer answers, every message an initiator writes carried its ML-KEM identity key in the clear
+  handshake header, and an own-device copy ties that key to the account — the server could read
+  the sender of a sealed first contact off it (`FF-1`, resolved in the same revision). The
+  certificate and the whole header are now sealed under X25519 plus the handshake's ML-KEM
+  secret; only the recipient's Kyber prekey id and the ciphertext stay outside. `BF-1`
+  corrected: the iOS client already fetches bundles over the sealed channel, the Android client
+  does not. `PQC-1` narrows to two rare boxes. Wire-incompatible with core 0.26; sessions of it
+  still in their first flights are refused and renew.
 - **The session envelope** (construct-core 0.26.0, 2026-10-01; Ch. 8, "Session envelope";
   `SealedInner.session_envelope = 21`). After first contact a sealed message carries no
   certificate and no readable wire payload. It carries an envelope keyed from the session's
