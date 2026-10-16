@@ -95,14 +95,39 @@ hybrid helper builds the same bytes in
 
 ChaCha20-Poly1305 is the AEAD for **Double Ratchet message payloads**. A
 second AEAD is used for **media attachments** (photos, video, files, voice
-messages): each attachment is encrypted client-side with **AES-256-GCM**
-under a fresh per-file 256-bit key, wire format `nonce(12) || ciphertext ||
-tag(16)`, before upload. The per-file key never reaches the media server —
-it travels end-to-end inside the (ChaCha20-Poly1305-sealed) message, so the
-server stores only an opaque encrypted blob. Reference: `construct-ios`
-`Services/MediaUploadService.swift:83` (`decryptMediaData`, 32-byte
-AES-256-GCM key). AES-256-GCM here rides Apple/hardware-accelerated
-`CryptoKit`; the Double Ratchet deliberately stays on ChaCha20-Poly1305.
+messages): each attachment is encrypted on the device with **AES-256-GCM**
+(crate `aes-gcm 0.10`) under a fresh per-file 256-bit key before upload. The
+per-file key and the SHA-256 of the blob never reach the media server — they
+travel end-to-end inside the (ChaCha20-Poly1305-sealed) message, so the
+server stores only an opaque blob. Since construct-core 0.33.0 (2026-10-04)
+the core seals and opens media for every client (`seal_media`, `open_media`,
+`construct-core/src/media.rs:99`-`:164`), and the blob is **padded to a
+Padmé bucket**:
+
+```text
+v1 blob : nonce(12) ‖ AES-256-GCM(key, nonce, ad = "konstruct-media-v1", P) ‖ tag(16)
+P       : BE64(len file) ‖ file ‖ 0x00 … 0x00
+|blob|  : max(Padmé(36 + |file|), 4096), at most 100 000 000 bytes
+Padmé(L): L rounded up so that only its top ⌊log₂ ⌊log₂ L⌋⌋ + 1 bits may be set
+```
+
+Padmé (Nikitin et al., *Reducing Metadata Leakage from Encrypted Files and
+Communication with PURBs*, PETS 2019; `padme`, `media.rs:79`-`:87`) costs at
+most 12 % and about 3 % from 64 KiB up, and reduces what the size reveals
+from log L to log log L bits. The 4 096-byte floor keeps small files — an
+avatar, a short voice note — from being told apart by size. On open, the
+length prefix MUST fit the payload and every padding byte MUST be zero
+(`unpad`, `media.rs:168`), so each file has one encoding.
+
+The version is told apart by the AEAD, not by a marker byte: a blob is first
+opened with the v1 associated data and, if that fails, as a **legacy** blob
+(`nonce(12) ‖ AES-256-GCM(key, nonce, no ad, file) ‖ tag(16)`, the exact
+file size — the format before 0.33.0). Neither kind can authenticate as the
+other, so the server sees no version byte. A reader older than 0.33.0
+cannot open a v1 blob and fails with an authentication error. Before 0.33.0
+each client sealed media itself (CryptoKit on iOS, `javax.crypto` on
+Android) and the server saw every file's size to the byte. The Double
+Ratchet stays on ChaCha20-Poly1305.
 
 ### 2.2.4 HKDF-SHA-256
 
@@ -496,6 +521,7 @@ memory is released:
 | `MK` (per-message key) | AEAD operation completes (encrypt or decrypt) |
 | `dh_out` (DH ratchet output) | Both `KDF_RK` calls in the ratchet step complete |
 | Chain key superseded by `KDF_CK` | Immediately on derivation of the successor |
+| Decrypted plaintext the core does not hand on (a control frame's header around its body, the notification peek's text) | As soon as it is classified (construct-core 0.45.1; Chapter 5 §5.8.4) |
 
 The reference uses `zeroize` / `zeroize::Zeroizing` from the
 `zeroize 1.7` crate for these. Long-term keys (`IK_priv`, `SK_priv`)

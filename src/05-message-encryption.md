@@ -159,8 +159,8 @@ version. The current format is **AD version 3**, defined as:
 ```
 AD_v3 ::=
     ad_version          : u8 = 3                     (1 B)
-    sender_user_id      : utf-8 bytes (36 chars)     (36 B for UUID)
-    receiver_user_id    : utf-8 bytes (36 chars)     (36 B for UUID)
+    sender_device_id    : utf-8 bytes (32 hex chars) (32 B; §3.4)
+    receiver_device_id  : utf-8 bytes (32 hex chars) (32 B; §3.4)
     session_id          : [u8; 16]                   (16 B; decoded from 32 lowercase hex chars)
     dh_public_key       : [u8; 32]                   (32 B)
     message_number      : u32 big-endian             (4 B)
@@ -168,46 +168,57 @@ AD_v3 ::=
     pq_key_index        : u32 big-endian             (4 B; Suite 4 only)
 ```
 
-Total length for canonical 36-character UUIDs: **125 bytes** for
-Suite 1/2, **133 bytes** for Suite 4 (the retired Suite 3 bound only
-`pq_message_epoch`, 129 bytes — one `u32` short of binding the key index at all). The session id is derived as
+Total length with 32-character device ids: **117 bytes** without the PQ
+fields, **125 bytes** for Suite 4, which every current session uses (the
+retired Suite 3 bound only `pq_message_epoch` — one `u32` short of binding
+the key index at all). The session id is derived as
 `HKDF(salt = x3dh_root, IKM = b"construct-session-id",
-info = b"Construct-SessionID-v2\x00" || min_user_id || 0x00 || max_user_id,
-L = 16)` and stored as hex
-(`construct-core/src/crypto/messaging/double_ratchet/mod.rs:204`-`:227`).
+info = b"Construct-SessionID-v2\x00" || min_id || 0x00 || max_id,
+L = 16)` over the same two device ids, and stored as hex
+(`construct-core/src/crypto/messaging/double_ratchet/mod.rs:278`-`:300`).
 The reference constructs encryption AD in
-`construct-core/src/crypto/messaging/double_ratchet/messaging.rs:307`-`:332`
-and decryption AD in `internals.rs:533`-`:554`.
+`construct-core/src/crypto/messaging/double_ratchet/messaging.rs:316`-`:341`
+and decryption AD in `internals.rs:762`-`:793`.
+
+> **Corrected 2026-10-16.** Earlier revisions named the two fields
+> `sender_user_id` / `receiver_user_id`, 36-character server UUIDs, and gave
+> 125 / 133 bytes. The session layer has been keyed by device ids since
+> 2026-08-26 (§3.4); the field layout is unchanged, only the identifiers and
+> therefore the lengths.
 
 Order is normative. Each direction of a session computes its own AD —
-ENCRYPT uses `(local_user_id_sender, contact_id_receiver)`; DECRYPT
-uses `(contact_id_sender, local_user_id_receiver)`, with the field
+ENCRYPT uses `(local_id_sender, contact_id_receiver)`; DECRYPT
+uses `(contact_id_sender, local_id_receiver)` — the core's `local_user_id`
+and `contact_id`, both device ids — with the field
 positions swapped so the AD on each side matches:
 
 ```
 ENCRYPT side (Alice → Bob):
-    AD = 0x03 || alice_user_id || bob_user_id || session_id || ...
+    AD = 0x03 || alice_device_id || bob_device_id || session_id || ...
 
 DECRYPT side (Bob receiving from Alice):
-    AD = 0x03 || alice_user_id || bob_user_id || session_id || ...
+    AD = 0x03 || alice_device_id || bob_device_id || session_id || ...
 ```
 
 i.e. the "sender_id" position is always populated with the sender's
-user-id regardless of which side is computing AD. A mismatch (e.g.
-using `device_id` (32-char hex) instead of `user_id` (36-char UUID))
-produces an AD length difference and instant AEAD failure.
+device id regardless of which side is computing AD. A mismatch (e.g.
+one side passing a 36-character account UUID where the other passes the
+32-character device id) produces a different AD and an AEAD failure on
+every message, with no other symptom.
 
-### 5.4.1 AD migration (v2 → v3)
+### 5.4.1 One AD version
 
-The previous version `AD_VERSION_PREV = 2` uses the same fields as
-v3, including the 16-byte session id; it differs by the leading
-version byte. A receiver MUST attempt decryption first with
-`AD_VERSION = 3`; if AEAD verification fails, the receiver MUST retry
-once with `AD_VERSION = 2` before treating the message as
-undecryptable. For Suite 4, both attempts include
-`pq_message_epoch` and `pq_key_index` in AD. This fallback path is purely for in-flight
-v2 messages during the migration window and SHOULD be removed in a
-future protocol revision (`SEC-006`).
+A receiver MUST decrypt with `AD_VERSION = 3` only. A message whose AD was
+built with version 2 does not open and is not retried
+(`construct-core/src/crypto/messaging/double_ratchet/internals.rs:727`-`:731`,
+`decrypt_with_key`; test `test_ad_v2_message_is_refused`).
+
+> **Changed in construct-core 0.24.2 (2026-09-30).** Until then a failed
+> AEAD was retried once with `AD_VERSION = 2`, for messages in flight during
+> the v2 → v3 migration. Every session is PQXDH v2 since 2026-09-25 and every
+> PQXDH v2 writer uses AD v3, so the retry could no longer open anything
+> (`SEC-006`, resolved). This section kept prescribing the retry until
+> 2026-10-16.
 
 ## 5.5 Encryption (RatchetEncrypt)
 
@@ -325,23 +336,19 @@ RatchetDecrypt(state, wire_bytes, peer_id):
     7. state.CKr = CKr'
     8. state.Nr += 1
 
-    -- §5.8.4 AEAD decrypt with fallback
+    -- AEAD decrypt (one AD version, §5.4.1)
     9. pq_key = pq_receive_key(state, header.pq_message_epoch, header.pq_key_index)   -- §2.4, below
    10. mk = mix_pq_message_key(mk_dr, pq_key)
    11. ad = build_ad(AD_VERSION_3, peer_id, state.local_user_id,
                      state.session_id, header.dh_public_key,
                      header.message_number,
                      (header.pq_message_epoch, header.pq_key_index) if state.suite_id = 4)
-   12. try:
-           padded = AEAD-Decrypt(key = mk, ciphertext = framing,
-                                 associated_data = ad)
-       except AeadVerifyFailed:
-           ad_v2 = build_ad(AD_VERSION_PREV, ...)    -- §5.4.1
-           padded = AEAD-Decrypt(..., associated_data = ad_v2)
+   12. padded = AEAD-Decrypt(key = mk, ciphertext = framing,
+                             associated_data = ad)    -- failure: restore snapshot, error
    13. commit Suite 4 PQ field only after authenticated decrypt succeeds
    14. zeroise(mk_dr, mk, pq_key)
    15. plaintext = pkcs7_unpad(padded)
-   16. return plaintext
+   16. return plaintext                               -- a KNST frame, §5.8.4
 ```
 
 **`pq_receive_key(state, epoch, index)`** (step 9; suite 4, `epoch != 0`) is the PQ counterpart of
@@ -416,6 +423,92 @@ answer to `PQR-4` (Chapter 7 §7.3): the bound on how far out of order a PQ-ratc
 arrive and still decrypt is now the same skipped-key window the classical half already uses, not
 an independently-sized epoch count. A message naming an epoch outside this window is a hard
 decrypt error, by the same no-silent-downgrade rule as an unknown epoch (§5.8, step 9).
+
+### 5.8.4 The plaintext frame (KNST) and what a decrypted message is
+
+What the ratchet encrypts (before padding, §5.7) is a **KNST frame**: a
+30-byte header and a body (`construct-core/src/knst.rs:1`-`:13`).
+
+```text
+[0..4]   magic "KNST"
+[4]      version 0x01
+[5]      content_type     — inside the ciphertext, so the server cannot read it
+[6..22]  message id, the UUID's 16 raw bytes
+[22..24] chunk_index      u16 BE
+[24..26] total_chunks     u16 BE
+[26..30] plaintext_length u32 BE — the whole body's length, in every frame
+[30..]   body
+```
+
+A body is split into frames of at most 3 770 bytes (`CHUNK_PAYLOAD_SIZE`),
+at most 256 frames (`MAX_CHUNKS`); a body that needs more is refused, not
+truncated, and an empty body is one frame (`encode_chunks`, `knst.rs:132`).
+A control payload is always one frame (`frame_whole`, `:125`). Since
+construct-core 0.31.0 (2026-10-02) the core writes and parses the frame
+for every client (UDL `knst_encode_chunks`, `knst_frame_whole`,
+`knst_parse`); before that each client did so by hand. The byte layout is
+pinned by `construct-protos/conformance/knst_frame.json`. Reassembling a
+chunked body is still the client's.
+
+**Byte 5 is the authority for what a sealed message is.** A sealed
+envelope's outer type is generic (Chapter 8 §8.2), so a receiver MUST
+classify a decrypted message by the frame's byte 5, not by the envelope.
+The core does, in this order (`decrypted_kind`,
+`construct-core/src/orchestration/orchestrator.rs:3097`):
+
+1. A single-frame control frame (`total_chunks = 1`, length within the
+   payload) whose byte 5 is 12 is a **call signal**: action
+   `CallSignalDecrypted` with the frame's body (construct-core 0.29.0).
+2. A single-frame control frame whose byte 5 is in the **silent control
+   set** is action `ControlFrameDecrypted { content_type, body }`: never a
+   chat message, no notification, nothing for the transcript (0.30.0).
+3. An identified envelope of type 12 with an unframed body is a call signal.
+4. Anything else is a message, announced unless its type is 13 or 14.
+
+A frame that claims a control type but is one chunk of several is not
+taken for a control frame. The silent control set
+(`SILENT_CONTROL_TYPES`, `knst.rs:38`) is pinned by a test to the
+cross-client table `construct-protos/conformance/knst_content_types.json`:
+
+| Byte 5 | Name | Note |
+|---|---|---|
+| 12 | `CALL_SIGNAL` | its own action, `CallSignalDecrypted` |
+| 13 | `HEARTBEAT` | |
+| 14 | `DELIVERY_RECEIPT` | |
+| 25, 26 | `SESSION_PING`, `SESSION_READY` | retired since 2026-09-27 — nothing sends them; still classified silent, so a frame of either never becomes a chat message |
+| 27 | `CONTACT_CARD` | |
+| 29 | `PROFILE` | |
+| 30 | `READ_SYNC` | construct-core 0.48.1; **own devices only** |
+
+**READ_SYNC (30)** carries how far the reader has read each chat, from one
+of a user's devices to its others. A client MUST NOT address it to a
+contact, and a receiver MUST drop one that did not come from its own
+account (`own_devices_only` in the table). The core classifies the frame
+as silent; the own-account check is the client's (`construct-ios`
+`Services/Messaging/MessageRouter.swift:1665`-`:1671`). Before
+construct-core 0.48.1 a frame of type 30 read as a message.
+
+**Decrypted text the core no longer needs is wiped.** When only a control
+frame's body leaves the core, the whole decrypted frame is zeroised rather
+than merely freed (`take_frame_body`, `orchestrator.rs:3117`), and the
+notification peek below zeroises what it decrypted as soon as it has
+classified it (`peek_verdict`, `:163`), since construct-core 0.45.1. Text
+handed to the platform (`MessageDecrypted`, the notification preview)
+leaves through the FFI; its buffers are the binding's and the client's.
+
+**A view that acts on nothing** (`NotificationPeek`, construct-core
+0.44.0; `construct-core/src/construct_core.udl:909`-`:937`). A notification
+extension runs before an alert is shown and may ask the core what a sealed
+delivery is, without changing anything: it is built from the key record and
+the saved orchestrator state, fetches session states by device through a
+callback, and answers one of `AlreadyHandled` (the message key is already
+spent), `Visible` (a message the app would announce), `Control` (a silent
+control frame, a call signal or a DECRYPTION_ERROR) or `Unreadable` (not
+read here, for any reason — the alert shows). It classifies with the same
+`decrypted_kind` as the receive path, so "is this announced" has one
+answer. It saves, sends and marks nothing, and no session state leaves it.
+Only the session-envelope route is read; a first flight or a certificate
+route answers `Unreadable`.
 
 ## 5.9 Previous states
 
@@ -556,6 +649,7 @@ done.
 - Reference implementation:
   - `construct-core/src/crypto/messaging/double_ratchet/`
   - `construct-core/src/wire_payload.rs`
+  - `construct-core/src/knst.rs` (plaintext frame)
   - `construct-core/src/orchestration/session_lifecycle.rs` (previous states)
   - `construct-core/src/orchestration/decryption_error.rs`
   - `construct-core/src/traffic_protection/padding.rs`

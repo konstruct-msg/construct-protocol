@@ -10,6 +10,71 @@ The Konstruct Protocol Specification follows
 - **PATCH** — editorial corrections that do not change implementer
   obligations.
 
+## v0.4.0 — *unreleased* (2026-10-16)
+
+Reconciles the specification with construct-core 0.48.1 (`origin/main`, 2026-10-15); the last
+reconciliation was with 0.28.0 on 2026-10-01. Mostly normative additions. One change is
+wire-incompatible in one direction: a media blob written by core ≥ 0.33.0 does not open in a
+reader older than 0.33.0 (the reverse still works). While the document is 0.x, a wire break moves
+the minor version, as v0.3.0 did. Also corrects four statements that were already wrong at v0.3.0.
+
+- **Server keys rooted offline — implemented, not in force** (2026-10-03, construct-core 0.32.0;
+  [Ch. 3 §3.11](./03-identity-key-hierarchy.md#311-server-signing-keys-rooted-offline), new).
+  Hybrid Ed25519 + ML-DSA-65 delegations from an offline root; server signatures labelled by
+  purpose (`konstruct/v1/sender-cert`, `kt-head`, `sticker-manifest`), naming a key id derived from
+  the key, with every field length-prefixed; per-purpose validity windows and grace. The client's
+  judgement of a sender certificate and of a KT head moved into the core (`certificate_verdict`,
+  `verify_kt_proofs`); `SenderCertificate` gains `server_kid` (8) and `server_signature_hybrid`
+  (9). `PINNED_ROOTS` is empty, so until a root is pinned every check is Ed25519 against the keys
+  the platform hands over, as before. Chapters 1 (coverage table), 4 §4.4.2, 7 (`PQC-2`, component
+  row), 8 §8.3 and 13 §13.2–13.3 say so. Before: the book described one unversioned Ed25519 key
+  learned from the server, and KT verification in Swift.
+- **The KNST frame and what a decrypted message is** (2026-10-02, construct-core 0.29.0–0.31.0;
+  [Ch. 5 §5.8.4](./05-message-encryption.md#584-the-plaintext-frame-knst-and-what-a-decrypted-message-is),
+  new). The book mentioned "KNST byte 5" without defining the frame. Now: the 30-byte header,
+  chunking (3 770 bytes, at most 256 frames), and the normative rule that a sealed message is
+  classified by byte 5, not by its generic envelope — call signal (`CallSignalDecrypted`, 0.29.0),
+  silent control frame (`ControlFrameDecrypted`, 0.30.0), else a message. The core writes and
+  parses the frame for every client since 0.31.0. [Ch. 10](./10-calls.md) and §8.2 point to it.
+- **READ_SYNC (content type 30)** (2026-10-15, construct-core 0.48.1; Ch. 5 §5.8.4). A silent
+  control frame carrying read positions between a user's own devices; a client MUST NOT send it
+  to a contact and MUST drop one not from its own account. Before 0.48.1 the core read a type-30
+  frame as a message.
+- **Media blobs sealed by the core and padded to Padmé buckets** (2026-10-04, construct-core
+  0.33.0; [Ch. 2 §2.2.3](./02-cryptographic-primitives.md#223-chacha20-poly1305-aead),
+  [Ch. 8 §8.7](./08-metadata-privacy.md#87-residual-metadata--what-a-server-still-sees), Ch. 1).
+  v1 blob = AES-256-GCM with associated data `konstruct-media-v1` over a length prefix, the file
+  and zero padding, sized `max(Padmé(36 + |file|), 4096)`. Before: each client sealed media
+  itself and the server saw every file's size to the byte; the book cited the iOS code.
+- **Every message names its writer** (2026-10-04, construct-core 0.34.0;
+  [Ch. 4 §4.4.2](./04-session-handshake.md#442-opening-without-the-server)). A receiver decrypts
+  on the one session of the device a message names; `plan_receiving_decrypt`, which tried a
+  message against each of a peer's devices, is removed.
+- **Notification peek** (2026-10-11, construct-core 0.44.0; Ch. 5 §5.8.4, Ch. 7). A read-only view
+  a notification extension asks whether a sealed delivery is a message to announce.
+- **Decrypted text the core does not hand on is wiped** (2026-10-11, construct-core 0.45.1;
+  [Ch. 2 §2.6](./02-cryptographic-primitives.md#26-key-zeroization), Ch. 5 §5.8.4): a control
+  frame around its body, and the notification peek's text, are zeroised, not merely freed.
+- **VEIL's TLS offers X25519MLKEM768** (2026-10-03, construct-core 0.31.2 pins construct-veil
+  `c3330a4`; [Ch. 1](./01-threat-model.md#post-quantum-coverage), [Ch. 6 §6.5](./06-transport.md#65-veil--anti-censorship-transport-tier),
+  Ch. 7 `PQC-6`). Transport TLS moves from "not established" to "partly": the VEIL client offers
+  the hybrid group first on `aws-lc-rs`; QUIC still uses `ring` with no hybrid group, and the
+  direct path's system TLS is unverified.
+- **Corrected: the AD binds device ids, not account UUIDs** ([Ch. 5 §5.4](./05-message-encryption.md#54-associated-data-construction-ad),
+  [Ch. 3 §3.4](./03-identity-key-hierarchy.md#34-device-identifier)). The session layer has been
+  keyed by 32-character device ids since 2026-08-26; the book still named 36-character server
+  UUIDs, so the AD lengths it gave (125 / 133 bytes) were wrong — they are 117 / 125.
+- **Corrected: one AD version** ([Ch. 5 §5.4.1](./05-message-encryption.md#541-one-ad-version)).
+  §5.4.1 and the §5.8 pseudocode still prescribed the AD v2 retry that construct-core 0.24.2
+  removed and that v0.3.0 already listed as resolved (`SEC-006`).
+- **Corrected elsewhere**: the introduction named construct-core v0.9.x, a document version of
+  v0.1.2, an MIT licence for the reference implementation (it is Apache-2.0), and "who sent a
+  sealed message, calls" as classical; the Chapter 1 coverage table still listed the PQR-1 gap
+  as open; Chapter 3 §3.8 gave session state the when-unlocked access class (it is
+  after-first-unlock); Chapter 13 called the `0x00` KT leaf the Ed25519 identity (it is the X25519
+  one); the Chapter 8 residual table named content types 21 and 24 as the outer exceptions (it is
+  28); Chapter 7 cited Swift verifiers that no longer exist and an Android core of 0.21.
+
 ## v0.3.0 — *unreleased* (2026-09-30)
 
 Wire-incompatible. Reconciles the specification with construct-core 0.24.0 (PQR-2,
