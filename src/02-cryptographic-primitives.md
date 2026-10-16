@@ -176,7 +176,7 @@ The PQ ratchet HKDF calls (`pq_epoch_chains`, `pq_chain_step`,
   HMAC-SHA-256 PRF.
 - Crate: `pbkdf2 0.12` with the `simple` feature.
 - Iterations (reference default): **100 000**
-  (`construct-core/src/config.rs:117`).
+  (`construct-core/src/config.rs:131`).
 - Use site: master-key derivation for at-rest encryption of recovery
   artefacts. PBKDF2 is **not** used in the wire protocol, only in
   application-level key wrapping.
@@ -214,7 +214,7 @@ classical-only way to open a session with a shipping client.
 - Crate: `ml-kem` (feature `post-quantum`, which every platform build enables).
 - Encapsulation key: **1568 bytes**. Ciphertext: **1568 bytes**. Shared secret: **32 bytes**.
 - Secret keys are generated and kept by the core as 64-byte seeds
-  (`MLKEM_SEED_SIZE`, `construct-core/src/crypto/pq_x3dh.rs:151`-`:155`).
+  (`MLKEM_SEED_SIZE`, `construct-core/src/crypto/pq_x3dh.rs:155`).
 - Implementations MUST use the FIPS 203 final variant.
 
 ML-KEM-768 (1184-byte key, 1088-byte ciphertext) is used only in the
@@ -261,7 +261,7 @@ hybrid signatures cover
 `"KonstruktX3DH-v1" || [0x00, 0x01] || SPK_pub` for the X25519 SPK and
 `"KonstruktX3DH-v1" || [0x00, 0x11] || created_at || KEM_pub` for every
 ML-KEM-1024 prekey. Reference sizes and verification behaviour:
-`construct-core/src/crypto/suites/hybrid.rs:1`-`:51`,
+`construct-core/src/crypto/suites/hybrid.rs:1`-`:35`,
 `construct-server/shared/proto/services/key_service.proto:248`-`:270`,
 and `construct-ios` `Security/HybridBundleVerifier.swift:34`-`:120`.
 

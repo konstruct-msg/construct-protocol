@@ -52,7 +52,7 @@ FIPS 203 (public key 1568 bytes, ciphertext 1568 bytes); the core keeps
 the secret as the 64-byte seed it was generated from. ML-KEM-768 appears
 only in the Suite 4 ratchet, never as a published prekey. The
 hybrid signature sizes come from the implemented Ed25519 + ML-DSA-65
-format in `construct-core/src/crypto/suites/hybrid.rs:1`-`:51`.
+format in `construct-core/src/crypto/suites/hybrid.rs:1`-`:35`.
 
 ## 3.3 Long-term keys
 
@@ -120,7 +120,7 @@ The Rust core's clean peer-freshness boundary is
 than this boundary is stale for the clean session-init path; the
 reference also exposes an explicit degraded
 `init_session_allowing_stale` path that skips only the freshness check
-while still verifying signatures (`construct-core/src/crypto/client_api.rs:358`-`:396`).
+while still verifying signatures (`construct-core/src/crypto/client_api.rs:365`-`:379`).
 
 The SPK carries a `spk_rotation_epoch: u32`. Each rotation increments
 this counter monotonically. The current prekey signature does not
@@ -350,7 +350,7 @@ by the core, the server and the offline root tool alike; its bytes are
 pinned by conformance vectors (`construct-core/tests/conformance/knst_server_trust.json`).
 
 **What a client accepts** (`ServerKeyRing`,
-`construct-core/src/crypto/server_trust.rs:139`-`:213`):
+`construct-core/src/crypto/server_trust.rs:139`-`:212`):
 
 1. A delegation is admitted only if a pinned root signed it
    (`verify_rooted`, `:110`). The platform hands delegations to the core

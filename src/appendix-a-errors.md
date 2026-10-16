@@ -63,7 +63,7 @@ covered in §A.10.
 ## A.2 FFI surface — `CryptoError`
 
 The application-facing error type exposed across UniFFI / JNI.
-Defined in `construct-core/src/uniffi_bindings.rs:30`.
+Defined in `construct-core/src/uniffi_bindings.rs:31`.
 
 | Tag | Variant | Raised when | Recovery |
 |---|---|---|---|
@@ -168,7 +168,7 @@ past it, so it was not redelivered.
 
 Raised by the PKCS#7-style padding helpers
 ([Chapter 5 §5.7](./05-message-encryption.md#57-pkcs7-padding-length-hiding)).
-Defined in `construct-core/src/traffic_protection/padding.rs:21`.
+Defined in `construct-core/src/traffic_protection/padding.rs:22`.
 
 | Tag | Variant | Condition |
 |---|---|---|

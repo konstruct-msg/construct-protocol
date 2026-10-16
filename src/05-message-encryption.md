@@ -84,12 +84,12 @@ WirePayload (header, 52 bytes fixed + variable extension fields) ::=
 ```
 
 `HEADER_SIZE = 52` bytes is fixed by the reference (sum of the field
-sizes above, `construct-core/src/wire_payload.rs:22`-`:36`). The
+sizes above, `construct-core/src/wire_payload.rs:25`-`:56`). The
 variable KEM ciphertext follows the header when `kem_len > 0`: it is the
 PQXDH v2 handshake header (Ch. 4 §4.3 Step 5), 1568 bytes of ML-KEM-1024
 ciphertext, present on every message of the initiator's first flight and
 absent afterwards. A frame that carries it sets bit `0x0100` of `suite_id`
-(`PQXDH_V2_FLAG`, `wire_payload.rs:36`); `unpack` strips the bit, so the
+(`PQXDH_V2_FLAG`, `wire_payload.rs:39`); `unpack` strips the bit, so the
 suite the AEAD authenticates is the low byte. Bit `0x0200` marks the
 initiator's KEM identity key after the ciphertext, and is valid only with
 `0x0100`; bit `0x0400` marks the responder's answer to it (Ch. 4 §4.4.4).
@@ -175,9 +175,9 @@ the key index at all). The session id is derived as
 `HKDF(salt = x3dh_root, IKM = b"construct-session-id",
 info = b"Construct-SessionID-v2\x00" || min_id || 0x00 || max_id,
 L = 16)` over the same two device ids, and stored as hex
-(`construct-core/src/crypto/messaging/double_ratchet/mod.rs:278`-`:300`).
+(`construct-core/src/crypto/messaging/double_ratchet/mod.rs:278`-`:299`).
 The reference constructs encryption AD in
-`construct-core/src/crypto/messaging/double_ratchet/messaging.rs:316`-`:341`
+`construct-core/src/crypto/messaging/double_ratchet/messaging.rs:317`-`:343`
 and decryption AD in `internals.rs:762`-`:793`.
 
 > **Corrected 2026-10-16.** Earlier revisions named the two fields
@@ -325,12 +325,12 @@ RatchetDecrypt(state, wire_bytes, peer_id):
        If skipped > MAX_SKIPPED_MESSAGES:
            reject as DoS attempt
 
-    -- §5.8.2 DH ratchet check
+    -- DH ratchet check (skipped-key expiry: §5.8.2)
     4. If header.dh_public_key != state.DHr:
            SkipChainKeysUntil(state, header.prev_chain_length)
            DHRatchetStep(state, header.dh_public_key)
 
-    -- §5.8.3 Message key lookup
+    -- Message key lookup (PQ chain retention: §5.8.3)
     5. SkipChainKeysUntil(state, header.message_number)
     6. (mk_dr, CKr') = KDF_CK(state.CKr)
     7. state.CKr = CKr'
@@ -387,9 +387,9 @@ encoding is rejected by `wire_payload::unpack` (Appendix A §A.4).
 
 | Constant | Default | Source |
 |---|---|---|
-| `MAX_SKIPPED_MESSAGES` | 1000 | `construct-core/src/config.rs:128` |
-| `MAX_MESSAGE_JUMP` | 2000 | `construct-core/src/config.rs:129` |
-| `MAX_SKIPPED_MESSAGE_AGE_SECONDS` | 604800 (7 days) | `:130` |
+| `MAX_SKIPPED_MESSAGES` | 1000 | `construct-core/src/config.rs:143` |
+| `MAX_MESSAGE_JUMP` | 2000 | `construct-core/src/config.rs:144` |
+| `MAX_SKIPPED_MESSAGE_AGE_SECONDS` | 604800 (7 days) | `:145` |
 
 A message that violates any of these MUST be rejected without
 performing the AEAD operation. Otherwise an attacker can force the
@@ -519,8 +519,8 @@ replaced state is **kept**, not dropped
 
 | Constant | Value | Source |
 |---|---|---|
-| `MAX_PREVIOUS_STATES` | 3 per peer device, oldest dropped first | `session_lifecycle.rs:31` |
-| `PREVIOUS_STATE_TTL_SECONDS` | 604800 (7 days) from the moment it was replaced | `session_lifecycle.rs:39` |
+| `MAX_PREVIOUS_STATES` | 3 per peer device, oldest dropped first | `session_lifecycle.rs:29` |
+| `PREVIOUS_STATE_TTL_SECONDS` | 604800 (7 days) from the moment it was replaced | `session_lifecycle.rs:37` |
 
 Receiving:
 

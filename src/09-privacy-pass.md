@@ -53,23 +53,23 @@ verify:  N' = k·H(nonce);   token' = HKDF-SHA512( compress(N') ‖ nonce, "Cons
 ```
 
 Reference: redemption `verify_token`
-(`construct-crypto/src/privacy_pass.rs:174`); token derivation
-`derive_token` (`:158`); the `k` is `from_bytes_mod_order`-reduced
-identically on both sides (`:174` comment) — a mismatch there issues fine
+(`construct-crypto/src/privacy_pass.rs:216`); token derivation
+`derive_token` (`:200`); the `k` is `from_bytes_mod_order`-reduced
+identically on both sides (`:213` comment) — a mismatch there issues fine
 but fails every redemption.
 
 ## 9.3 Issuance and issuance caps
 
 Tokens are minted by identity-service `issue_tokens`
-(`identity-service/src/main.rs:907`). The request carries the blinded
+(`identity-service/src/main.rs:1150`). The request carries the blinded
 points `Bᵢ`; the response returns the evaluations `Zᵢ = k·Bᵢ`, the issuer
 commitment `K` (`server_pubkey`, proto field 2), the batched DLEQ proof
 (field 3), and `issuer_key_version` (field 4). Because the points are
 blinded, the issuer cannot read the token material it signs.
 
 Anti-abuse at issuance is an **age-tiered per-account hourly cap**
-(`effective_issuance_cap`, `identity-service/src/main.rs:65`, applied
-`:952`): a young account (below `TOKEN_ISSUANCE_MATURITY_HOURS`, default
+(`effective_issuance_cap`, `identity-service/src/main.rs:59`, applied
+`:1195`): a young account (below `TOKEN_ISSUANCE_MATURITY_HOURS`, default
 24 h) is capped at `TOKEN_ISSUANCE_YOUNG_MAX_PER_HOUR` (default 30); a
 matured account at `TOKEN_ISSUANCE_MAX_PER_HOUR` (default 120). An
 account-age lookup failure fails safe to the young cap. The client wallet
@@ -81,20 +81,20 @@ batch at registration.
 A sealed send MAY carry the spent token in `SealedInner.token_nonce` /
 `SealedInner.token_bytes` ([Chapter 8 §8.2](./08-metadata-privacy.md)). The
 token bytes are themselves sealed to the destination server's X25519 key
-(`open_sealed_token_bytes`, `construct-crypto/src/privacy_pass.rs:107`;
+(`open_sealed_token_bytes`, `construct-crypto/src/privacy_pass.rs:149`;
 client seals with the key delivered over the authenticated
 `GetSenderCertificateResponse`), so a relay operator cannot read the spent
 token in transit.
 
 The server redeems via `redeem_token_checked`
-(`messaging-service/src/envelope.rs:208`), which runs `verify_token` and a
+(`messaging-service/src/token_redeem.rs:108`), which runs `verify_token` and a
 single-use check (a Redis seen-set keyed by the token, `SET NX`). Outcomes
 map to a typed `TokenRejected` error (`envelope.rs:18`) with a
 `FAILED_PRECONDITION "privacy_pass:{label}"` status (labels:
 `missing_token` / `invalid_token` / `double_spent` / `decrypt_failed` / …).
 
 Enforcement is governed by `MSG_STEALTH_TOKEN_POLICY`
-(`envelope.rs:192`), a three-way switch:
+(`envelope.rs:173`, `token_gate_action`), a three-way switch:
 
 | Policy | Behaviour |
 |---|---|
@@ -170,7 +170,7 @@ mode. A known-answer test vector pins the whole transcript
 | Piece | Status |
 |---|---|
 | VOPRF issuance + redemption (`verify_token`) | **Implemented**, in production. |
-| Age-tiered issuance cap | **Implemented** (`identity-service/src/main.rs:65`). |
+| Age-tiered issuance cap | **Implemented** (`identity-service/src/main.rs:59`). |
 | Token enforcement (`MSG_STEALTH_TOKEN_POLICY`) | **`warn`** in production; `enforce` **deferred past 1.0**. |
 | DLEQ proof — server issuance | **Implemented** (`construct-crypto/src/privacy_pass.rs`). |
 | DLEQ verification — client (iOS pinned `K` v1) | **Implemented** and device-confirmed. |
@@ -187,14 +187,15 @@ threat-model text must not over-claim past this line — see
 
 ## 9.7 References
 
-- `construct-crypto/src/privacy_pass.rs` — VOPRF (`verify_token:174`,
-  `derive_token:158`, `open_sealed_token_bytes:107`) and DLEQ
-  (`DLEQ_DOMAIN:195`, `issuer_public_key:221`, `generate_dleq_proof:274`,
-  `verify_dleq_proof:313`).
-- `identity-service/src/main.rs` — issuance (`issue_tokens:907`) and caps
-  (`effective_issuance_cap:65`).
-- `messaging-service/src/envelope.rs` — redemption + policy
-  (`redeem_token_checked:208`, `TokenRejected:18`, policy switch `:192`).
+- `construct-crypto/src/privacy_pass.rs` — VOPRF (`verify_token:216`,
+  `derive_token:200`, `open_sealed_token_bytes:149`) and DLEQ
+  (`DLEQ_DOMAIN:237`, `issuer_public_key:263`, `generate_dleq_proof:316`,
+  `verify_dleq_proof:355`).
+- `identity-service/src/main.rs` — issuance (`issue_tokens:1150`) and caps
+  (`effective_issuance_cap:59`).
+- `messaging-service/src/token_redeem.rs` — redemption
+  (`redeem_token_checked:108`); `messaging-service/src/envelope.rs` — policy
+  (`TokenRejected:18`, policy switch `token_gate_action:173`).
 - Client (`construct-ios`): `BlindTokenService`, `StealthSendRecovery.swift`.
 - Contract / rationale (construct-docs): `cryptocore/privacy-pass-dleq-v1.md`;
   `decisions/stealth-phase-c-verifiable-voprf`,

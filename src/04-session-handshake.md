@@ -40,7 +40,7 @@ Fixed byte strings:
 | Constant | Value | Source |
 |---|---|---|
 | Prologue | `b"KonstruktX3DH-v1"` (16 bytes) | `construct-core/src/crypto/keys.rs` |
-| Salt F | `[0xFF; 32]` | `construct-core/src/crypto/handshake/x3dh.rs:167` |
+| Salt F | `[0xFF; 32]` | `construct-core/src/crypto/handshake/x3dh.rs:169` |
 | HKDF info, PQXDH root key | `b"Construct-PQXDH-RootKey-v3"` ‖ SHA-256(KEM_pub) ‖ SHA-256(kem_ct) ‖ SHA-256(KIK_A) | `x3dh.rs` (`X3DH_ROOT_INFO_PQXDH`, `derive_root_key`) |
 | HKDF info, classical root key | `b"Construct-X3DH-RootKey-v1"` — builds without the `post-quantum` feature only; such builds cannot open sessions with the shipping clients | `x3dh.rs:152` |
 | Kyber prekey signature suite byte | `0x11` | `construct-core/src/crypto/kyber_prekey_auth.rs:37` |
@@ -96,7 +96,7 @@ Alice fetches the bundle of Bob's device. She MUST:
    degraded path that skips only this check for the classical SPK; it never applies to Kyber
    prekeys (step 4).
 3. If the bundle offers an OPK, select exactly one.
-4. Plan the post-quantum part (`construct-core/src/orchestration/pq_prekey_plan.rs:102`,
+4. Plan the post-quantum part (`construct-core/src/orchestration/pq_prekey_plan.rs:108`,
    `plan_pqxdh`). Alice MUST refuse the bundle — and create no session — if any of these holds:
 
    | Refusal | Condition |
@@ -164,7 +164,7 @@ first — is protected by both components.
 
 Alice initialises the Double Ratchet from `SK_root`, taking `SPK_B_pub` as the initial remote
 ratchet key, and encrypts. Every message she sends on this state carries the **handshake
-header** until Bob's first reply arrives (`construct-core/src/crypto/messaging/double_ratchet/mod.rs:310`):
+header** until Bob's first reply arrives (`construct-core/src/crypto/messaging/double_ratchet/mod.rs:306`-`:317`):
 
 - `EK_A_pub` and `opk_id` (in the header fields of §5.3);
 - `kem_ct` (1568 bytes) and `kyber_otpk_id` (0 when the KEM-SPK was used);

@@ -254,8 +254,8 @@ a key rotation must not silently drop mail.
 ## 8.4 Always-on scope, and the fail-closed invariant
 
 Sealed sending is **on by default** in release builds — there is no user
-toggle to turn it off (`construct-ios` `Services/StealthPolicy.swift:42`
-`isEnabled`, `:71` `shouldUseSealedSender`). DEBUG builds keep a developer
+toggle to turn it off (`construct-ios` `Services/StealthPolicy.swift:43`
+`isEnabled`, `:72` `shouldUseSealedSender`). DEBUG builds keep a developer
 override for exercising the legacy identified path.
 
 **Invariant (fail-closed): while stealth is on, every in-scope
