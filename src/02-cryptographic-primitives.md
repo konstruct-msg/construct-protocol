@@ -117,7 +117,9 @@ most 12 % and about 3 % from 64 KiB up, and reduces what the size reveals
 from log L to log log L bits. The 4 096-byte floor keeps small files — an
 avatar, a short voice note — from being told apart by size. On open, the
 length prefix MUST fit the payload and every padding byte MUST be zero
-(`unpad`, `media.rs:168`), so each file has one encoding.
+(`unpad`, `media.rs:168`), so each file has one encoding. The errors these functions raise, and how
+they reach the client, are in
+[Appendix A §A.12](./appendix-a-errors.md#a12-media-blobs--mediaerror).
 
 The version is told apart by the AEAD, not by a marker byte: a blob is first
 opened with the v1 associated data and, if that fails, as a **legacy** blob
@@ -176,7 +178,7 @@ The PQ ratchet HKDF calls (`pq_epoch_chains`, `pq_chain_step`,
   HMAC-SHA-256 PRF.
 - Crate: `pbkdf2 0.12` with the `simple` feature.
 - Iterations (reference default): **100 000**
-  (`construct-core/src/config.rs:117`).
+  (`construct-core/src/config.rs:131`).
 - Use site: master-key derivation for at-rest encryption of recovery
   artefacts. PBKDF2 is **not** used in the wire protocol, only in
   application-level key wrapping.
@@ -214,7 +216,7 @@ classical-only way to open a session with a shipping client.
 - Crate: `ml-kem` (feature `post-quantum`, which every platform build enables).
 - Encapsulation key: **1568 bytes**. Ciphertext: **1568 bytes**. Shared secret: **32 bytes**.
 - Secret keys are generated and kept by the core as 64-byte seeds
-  (`MLKEM_SEED_SIZE`, `construct-core/src/crypto/pq_x3dh.rs:151`-`:155`).
+  (`MLKEM_SEED_SIZE`, `construct-core/src/crypto/pq_x3dh.rs:155`).
 - Implementations MUST use the FIPS 203 final variant.
 
 ML-KEM-768 (1184-byte key, 1088-byte ciphertext) is used only in the
@@ -261,7 +263,7 @@ hybrid signatures cover
 `"KonstruktX3DH-v1" || [0x00, 0x01] || SPK_pub` for the X25519 SPK and
 `"KonstruktX3DH-v1" || [0x00, 0x11] || created_at || KEM_pub` for every
 ML-KEM-1024 prekey. Reference sizes and verification behaviour:
-`construct-core/src/crypto/suites/hybrid.rs:1`-`:51`,
+`construct-core/src/crypto/suites/hybrid.rs:1`-`:35`,
 `construct-server/shared/proto/services/key_service.proto:248`-`:270`,
 and `construct-ios` `Security/HybridBundleVerifier.swift:34`-`:120`.
 

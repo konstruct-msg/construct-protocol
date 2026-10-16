@@ -107,7 +107,7 @@ Header constants are defined in `construct-core/src/cfe/envelope.rs`:
 `CFE_HEADER_LEN = 16`, `SUPPORTED_FLAGS_MASK = 0x00`, and
 `MAX_PAYLOAD_LEN = 256 * 1024` (`:8`-`:25`). The encoder writes the
 header in the order above and serialises the payload with
-`rmp_serde::to_vec_named` (`:48`-`:65`).
+`rmp_serde::to_vec_named` (`:47`-`:66`).
 
 ### 6.3.2 Required validations
 
@@ -124,7 +124,7 @@ A receiver of a CFE envelope MUST:
 7. Verify the buffer contains exactly enough bytes for the declared
    payload.
 8. Verify `crc32` matches recomputed CRC-32 over the payload bytes
-   only (`construct-core/src/cfe/envelope.rs:135`-`:147`).
+   only (`construct-core/src/cfe/envelope.rs:135`-`:148`).
 9. Decode the payload as MessagePack only if all checks above pass.
 
 These checks are what make CFE strictly safer than the JSON
@@ -285,9 +285,9 @@ are the metadata mechanisms, not VEIL.
 | CFE magic | `[0x43, 0x46]` | `cfe/envelope.rs:8` |
 | CFE version | `0x01` | `cfe/envelope.rs:9` |
 | CFE header length | 16 bytes | `cfe/envelope.rs:10` |
-| CFE supported flags | `0x00` mask; all flags rejected | `cfe/envelope.rs:17`, `:110`-`:112` |
-| CFE max payload | 256 KiB | `cfe/envelope.rs:19`-`:25`, `:119`-`:124` |
-| WirePayload header length | 52 bytes (fixed) | `wire_payload.rs:22`-`:36` |
+| CFE supported flags | `0x00` mask; all flags rejected | `cfe/envelope.rs:17`, `:111`-`:113` |
+| CFE max payload | 256 KiB | `cfe/envelope.rs:19`-`:25`, `:120`-`:125` |
+| WirePayload header length | 52 bytes (fixed) | `wire_payload.rs:25`-`:56` |
 | Padding modulus | 255 | `traffic_protection/padding.rs` |
 | VEIL probe timeout | implementation-defined (reference: a few seconds per backend) | `construct-veil/src/veil/coordinator.rs` |
 

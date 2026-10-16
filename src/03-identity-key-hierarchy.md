@@ -52,7 +52,7 @@ FIPS 203 (public key 1568 bytes, ciphertext 1568 bytes); the core keeps
 the secret as the 64-byte seed it was generated from. ML-KEM-768 appears
 only in the Suite 4 ratchet, never as a published prekey. The
 hybrid signature sizes come from the implemented Ed25519 + ML-DSA-65
-format in `construct-core/src/crypto/suites/hybrid.rs:1`-`:51`.
+format in `construct-core/src/crypto/suites/hybrid.rs:1`-`:35`.
 
 ## 3.3 Long-term keys
 
@@ -120,7 +120,7 @@ The Rust core's clean peer-freshness boundary is
 than this boundary is stale for the clean session-init path; the
 reference also exposes an explicit degraded
 `init_session_allowing_stale` path that skips only the freshness check
-while still verifying signatures (`construct-core/src/crypto/client_api.rs:358`-`:396`).
+while still verifying signatures (`construct-core/src/crypto/client_api.rs:365`-`:379`).
 
 The SPK carries a `spk_rotation_epoch: u32`. Each rotation increments
 this counter monotonically. The current prekey signature does not
@@ -350,7 +350,7 @@ by the core, the server and the offline root tool alike; its bytes are
 pinned by conformance vectors (`construct-core/tests/conformance/knst_server_trust.json`).
 
 **What a client accepts** (`ServerKeyRing`,
-`construct-core/src/crypto/server_trust.rs:139`-`:213`):
+`construct-core/src/crypto/server_trust.rs:139`-`:212`):
 
 1. A delegation is admitted only if a pinned root signed it
    (`verify_rooted`, `:110`). The platform hands delegations to the core
@@ -385,6 +385,8 @@ not post-quantum (`PQC-2`, [Chapter 7 §7.3](./07-implementation-status.md#73-op
 What has changed already: the decision is made in the core
 (`SenderCertificate::verdict`, `key_transparency::verify_proof`), not by
 each client, so it changes for every client at once when a root is pinned.
+The refusal reasons behind those verdicts (`TrustError`) are listed in
+[Appendix A §A.13](./appendix-a-errors.md#a13-server-signature-trust--trusterror).
 
 The root's private half is two 32-byte seeds (Ed25519, ML-DSA-65), each
 written as a 24-word BIP-39 phrase — 48 words
