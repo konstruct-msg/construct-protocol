@@ -117,7 +117,9 @@ most 12 % and about 3 % from 64 KiB up, and reduces what the size reveals
 from log L to log log L bits. The 4 096-byte floor keeps small files — an
 avatar, a short voice note — from being told apart by size. On open, the
 length prefix MUST fit the payload and every padding byte MUST be zero
-(`unpad`, `media.rs:168`), so each file has one encoding.
+(`unpad`, `media.rs:168`), so each file has one encoding. The errors these functions raise, and how
+they reach the client, are in
+[Appendix A §A.12](./appendix-a-errors.md#a12-media-blobs--mediaerror).
 
 The version is told apart by the AEAD, not by a marker byte: a blob is first
 opened with the v1 associated data and, if that fails, as a **legacy** blob

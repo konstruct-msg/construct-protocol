@@ -85,7 +85,8 @@ fetch**, not merely designed:
    published key, as before. Until 2026-10-03 this check was written in
    each client (iOS `KeyTransparencyVerifier`, now removed); the iOS client
    calls the core from `KeyServiceClient`. A failed verdict is recorded on
-   the contact and logged; it does not reject the bundle.
+   the contact and logged; it does not reject the bundle. Every variant, its
+   cause and the client's part: [Appendix A §A.15](./appendix-a-errors.md#a15-key-transparency-verdict--ktverdict).
 
 A KT-verified key is the strongest certificate-based sender-attestation
 lever used by sealed sender (the `.kt` lever, [Chapter 8

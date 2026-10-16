@@ -58,6 +58,7 @@ covered in §A.10.
 | §A.5 Padding | Stable. |
 | §A.6–A.8 Internal | Unstable. Variant names and counts MAY change between releases. Catch the FFI surface (§A.2) instead. |
 | §A.9 VEIL | Unstable. Tracked in the `construct-veil` crate. |
+| §A.12–A.18 | Added in this revision (construct-core up to 0.48.1). Not covered by the §A.2 rule: variants MAY change between releases, and a client reads the UDL of the core it links. |
 | §A.10 gRPC | Inherited from gRPC; semantics MUST follow the gRPC spec. |
 
 ## A.2 FFI surface — `CryptoError`
@@ -357,7 +358,144 @@ When surfacing any error from this registry to the user or to logs:
    error. UIs SHOULD render it as "this person hasn't opened
    Konstruct in N days" rather than as a generic failure dialog.
 
-## A.12 References
+## A.12 Media blobs — `MediaError`
+
+Raised by `seal_media`, `open_media` and the blob-size helpers
+([Chapter 2 §2.2.3](./02-cryptographic-primitives.md#223-chacha20-poly1305-aead)).
+Defined in `construct-core/src/media.rs:53`. It does not cross the FFI by
+name: `media_error` (`construct-core/src/uniffi_bindings.rs:3003`) maps each
+variant to a §A.2 variant, shown in the last column.
+
+| Tag | Variant | Raised when | FFI variant | Client behaviour |
+|---|---|---|---|---|
+| `MEDIA-TOO-LARGE` | `TooLarge(len)` | The file is larger than `max_plaintext_len()` — the 100 000 000-byte blob ceiling less the 36 bytes of nonce, tag and length prefix. | `EncryptionFailed` | Ask `media_max_plaintext_len()` before encoding or uploading, and refuse the attachment up front. |
+| `MEDIA-INVALID-KEY` | `InvalidKey(len)` | The key given to `open_media` is not `MEDIA_KEY_LEN` (32) bytes. | `InvalidKeyData` | The key comes from the message; treat the message's media reference as malformed. |
+| `MEDIA-UNAUTHENTICATED` | `Unauthenticated` | The blob is shorter than nonce plus tag, or opens neither as a v1 blob nor as a pre-0.33 blob under this key. | `DecryptionFailed` | Do not render the file. The blob, or the key the message carries, is wrong; retrying with the same pair cannot succeed. |
+| `MEDIA-MALFORMED-PADDING` | `MalformedPadding` | The blob authenticated as v1, but its length prefix does not fit the payload or a padding byte is not zero. | `InvalidCiphertext` | Do not render the file. A conforming sealer never writes this. |
+
+A legacy blob has no padding, so `MEDIA-MALFORMED-PADDING` is reachable only
+for v1.
+
+## A.13 Server-signature trust — `TrustError`
+
+Raised by `ServerKeyRing` and the delegation functions
+([Chapter 3 §3.11](./03-identity-key-hierarchy.md#311-server-signing-keys-rooted-offline)).
+Defined in `construct-core/src/crypto/server_trust.rs:60`. It is **not**
+exported through `construct_core.udl`: `admit_server_delegations` returns only
+how many delegations were kept, and the other callers fold each variant into
+the verdicts of §A.14 and §A.15. A client therefore never matches on it; the
+table is the reason behind those verdicts.
+
+| Tag | Variant | Produced when | Folded into |
+|---|---|---|---|
+| `TRUST-MALFORMED` | `Malformed` | Delegation bytes do not decode; or a delegation is issued for a public key that is not hybrid-sized, or with `not_before >= not_after`. | A delegation is not admitted. |
+| `TRUST-NO-ROOT` | `NoRoot` | `verify_rooted` was given an empty root list: this build pins no root (`PINNED_ROOTS` is empty today). | A delegation is not admitted. |
+| `TRUST-NOT-ROOTED` | `NotRooted` | No pinned root verifies the delegation's root signature. | A delegation is not admitted. |
+| `TRUST-UNKNOWN-KEY` | `UnknownKey` | No admitted key has the named key id. Transient: the delegation may not have reached the client yet. | `NoKey` (certificate), `Unavailable` (tree head) |
+| `TRUST-WRONG-PURPOSE` | `WrongPurpose` | The key exists but was delegated for another purpose (sender certificate, tree head, sticker manifest). | `BadSignature` / `SignatureInvalid` |
+| `TRUST-OUTSIDE-WINDOW` | `OutsideWindow` | The signing time lies outside the delegation's `not_before`..`not_after`. | `BadSignature` / `SignatureInvalid` |
+| `TRUST-EXPIRED` | `Expired` | The verifier's clock is past the window's end plus the purpose's grace (`Purpose::grace_secs`, `server-trust/src/lib.rs:99`). | `Expired` (certificate), `SignatureInvalid` (tree head) |
+| `TRUST-BAD-SIGNATURE` | `BadSignature` | The hybrid Ed25519 + ML-DSA-65 signature does not verify under the delegated key. | `BadSignature` / `SignatureInvalid` |
+
+An implementation MUST keep `UnknownKey` distinct from the rest: it is the
+only variant that says "not yet", and every other one is a refusal.
+
+## A.14 Sender-certificate verdict — `CertificateVerdict`
+
+The answer of `certificate_verdict` for a `SenderCertificate`
+([Chapter 8 §8.3](./08-metadata-privacy.md#83-sender-certificate-and-recipient-verification)).
+It is a UDL enum (`construct_core.udl`, `enum CertificateVerdict`), defined in
+`construct-core/src/crypto/sealed_sender/mod.rs:421` and derived by
+`SenderCertificate::verdict` from the internal `SenderRefusal`
+(`sealed_sender/mod.rs:279`) — the same checks a session opens on, answered
+as a label.
+
+| Tag | Variant | Produced when | Client behaviour |
+|---|---|---|---|
+| `CERT-VOUCHED` | `Vouched` | The signature verifies under an accepted server key and the key derives to the device the certificate names. | The certificate may open a session and attest the sender. |
+| `CERT-NO-KEY` | `NoKey` | No server key to check with yet (`SenderRefusal::NoTrustedKey`; `TrustError::UnknownKey`). Transient. | Nothing is dropped. Retry after `set_trusted_server_keys` / `admit_server_delegations` have been called. |
+| `CERT-BAD-SIGNATURE` | `BadSignature` | The signature fails; the key does not derive to the named device or is not an X25519 key; or a hybrid-signed certificate claims more than one day of lifetime or names a key id of the wrong length. | Do not open a session from it and do not attest the sender. |
+| `CERT-EXPIRED` | `Expired` | Signed, naming its device, and expired longer ago than a message can wait at the relay (`MAX_DELIVERY_AGE_SECS`, 7 days). Reached only after the signature and device checks pass. | Do not open from it. A platform MAY pin the key of an expired-but-signed certificate. |
+
+## A.15 Key Transparency verdict — `KtVerdict`
+
+The answer of `verify_kt_proofs` for one inclusion proof
+([Chapter 13 §13.3](./13-key-transparency.md#133-what-is-live-today)).
+A UDL enum, defined in `construct-core/src/crypto/key_transparency.rs:290`
+and returned by `verify_proof` (`key_transparency.rs:305`). `verify_kt_proofs`
+returns one verdict for the X25519 identity key and, when a hybrid identity
+key was given, a second for it (`KtVerdicts { identity, hybrid }`).
+
+| Tag | Variant | Produced when | Client behaviour |
+|---|---|---|---|
+| `KT-VERIFIED` | `Verified` | The leaf is included under the proof's root and the tree head's signature verifies. | Record the key as KT-verified. |
+| `KT-UNAVAILABLE` | `Unavailable` | No key to check the head with yet: no Ed25519 keys handed over, or the head names a key id not admitted. | Not evidence of anything. |
+| `KT-MALFORMED-PROOF` | `MalformedProof` | A root or proof hash is not 32 bytes, `tree_size` is 0, `leaf_index >= tree_size`, or the head's key id is the wrong length. | Record the failure. |
+| `KT-INCLUSION-INVALID` | `InclusionProofInvalid` | The recomputed leaf is not under the root; or, with a root pinned, the delegated head names a different tree size or root than the proof. | Record the failure. |
+| `KT-SIGNATURE-INVALID` | `SignatureInvalid` | The head signature does not verify; or a root is pinned, no delegated head came with the proof and `HYBRID_REQUIRED` is set. | Record the failure. |
+
+A failed verdict is recorded on the contact and logged; it does not reject the
+bundle (Chapter 13 §13.3 step 2).
+
+## A.16 History transfer — `HistoryError`
+
+Why a history transfer between a user's own devices was refused
+(`construct-core/src/history/`). The wire name is a UDL `[Error]` enum
+(`enum HistoryError`), defined in `construct-core/src/uniffi_bindings.rs:1169`
+and converted from the core's `HistoryFailure` (`history/mod.rs:48`), one case
+for one case. Each case's message is the specification's name for it
+(`as_str`); a client MUST log that name and map the case to text for a person.
+
+
+| Tag | Variant | Raised when |
+|---|---|---|
+| `HIST-MALFORMED` | `Malformed` | Bytes that are not the format, or break a rule of it that has no name of its own. |
+| `HIST-TRUNCATED` | `Truncated` | The stream ended before its End record. |
+| `HIST-UNKNOWN-VERSION` | `UnknownVersion` | A manifest `format_version` this reader does not speak. |
+| `HIST-USER-MISMATCH` | `UserMismatch` | A file for another account than this device's. |
+| `HIST-RECORD-ORDER` | `RecordOrder` | A record the phase does not allow, or out of the required order. |
+| `HIST-ENVELOPE-MANIFEST` | `EnvelopeManifestMismatch` | The manifest names a different snapshot or account than the envelope it arrived in. |
+| `HIST-V1-REFUSED` | `V1RefusedForHistory` | A history frame on CTT1 v1, the PIN-HMAC backup handshake. |
+| `HIST-IDENTITY-MISMATCH` | `IdentityMismatch` | Keys or ids in a frame are not the ones the directory holds for that device. |
+| `HIST-KEM-KEY-ID` | `KemKeyIdMismatch` | The frame was made for a Kyber prekey this device no longer holds. |
+| `HIST-QR-PIN-MISMATCH` | `QrPinMismatch` | The link QR pinned other keys than the frame carries. |
+| `HIST-QR-PIN-ABSENT` | `QrPinAbsent` | No QR pin and no bundle-only allowance: nothing authenticates the other device. |
+| `HIST-NO-HYBRID-KEY` | `NoHybridKey` | The other device has no hybrid identity key to verify with. |
+| `HIST-SIGNATURE-INVALID` | `SignatureInvalid` | The hybrid signature does not verify under the known key. |
+| `HIST-CHUNK-OPEN-FAILED` | `ChunkOpenFailed` | A sealed chunk did not open: wrong key, reordered, spliced or corrupted. |
+| `HIST-LOCAL-KEYS` | `LocalKeysUnavailable` | This device lacks a key the transfer needs (hybrid identity, Kyber signed prekey). |
+
+Every case is a refusal of the transfer at hand; none is a "not yet" like
+`NoKey` in §A.14.
+
+## A.17 Local store — `LocalStoreError`
+
+Errors of the core's SQLCipher store that every client keeps. A UDL `[Error]`
+enum, defined in `construct-core/src/local_store_bindings.rs:12` and converted
+from `store::StoreError`.
+
+| Tag | Variant | Raised when | Client behaviour |
+|---|---|---|---|
+| `STORE-WRONG-KEY` | `WrongKey` | The key does not open this store. | Do not retry with the same key. |
+| `STORE-KEY-LENGTH` | `KeyLength` | The store key is not 32 bytes. | The store key is 32 random bytes kept by the platform's key store. |
+| `STORE-SCHEMA-TOO-NEW` | `SchemaTooNew` | The store was written by a newer build than this one. | Do not open it with this build. |
+| `STORE-CLOSED` | `Closed` | The handle was used after the store was wiped. | The handle is dead; do not use it again. |
+| `STORE-STORAGE` | `Storage(message)` | SQLite or file errors, with the detail in the message. | Surface as an internal error; do not parse the message. |
+
+## A.18 Notification peek — `PeekVerdict`
+
+Not an error: the answer of `NotificationPeek::peek` for one sealed delivery,
+decided without acting on it ([Chapter 5 §5.8.4](./05-message-encryption.md#584-the-plaintext-frame-knst-and-what-a-decrypted-message-is)).
+A UDL enum, defined in `construct-core/src/orchestration/orchestrator.rs:175`.
+
+| Tag | Variant | Meaning | Client behaviour |
+|---|---|---|---|
+| `PEEK-ALREADY-HANDLED` | `AlreadyHandled` | The app already processed it: its message key is spent in the stored session. | Nothing to announce. |
+| `PEEK-VISIBLE` | `Visible` | A message the app would announce. | Show the alert. |
+| `PEEK-CONTROL` | `Control` | A silent control frame, a call signal or a DECRYPTION_ERROR. | Nothing to announce. |
+| `PEEK-UNREADABLE` | `Unreadable` | Not read here, for any reason; a first flight or a certificate route is always this. | The alert shows. |
+
+## A.19 References
 
 - FFI surface: `construct-core/src/uniffi_bindings.rs`
 - CFE envelope: `construct-core/src/cfe/error.rs`
@@ -366,6 +504,13 @@ When surfacing any error from this registry to the user or to logs:
 - Internal crypto: `construct-core/src/error.rs`
 - Top-level `Result`: `construct-core/src/utils/error.rs`
 - MLS: `construct-core/src/group/mls_error.rs`
+- Media: `construct-core/src/media.rs`
+- Server-signature trust: `construct-core/src/crypto/server_trust.rs`
+- Certificate verdict: `construct-core/src/crypto/sealed_sender/mod.rs`
+- KT verdict: `construct-core/src/crypto/key_transparency.rs`
+- History transfer: `construct-core/src/history/mod.rs`, `uniffi_bindings.rs`
+- Local store: `construct-core/src/local_store_bindings.rs`
+- Notification peek: `construct-core/src/orchestration/orchestrator.rs`
 - VEIL coordinator: `construct-veil/src/veil/coordinator.rs`
 - VEIL obfuscator: `construct-veil/src/veil/obfuscator.rs`
 - VEIL probe FSM: `construct-veil/src/veil/fsm/types.rs`

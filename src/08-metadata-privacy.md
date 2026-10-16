@@ -223,7 +223,9 @@ Ed25519 against the server's published key and the keys pinned in the
 app. The verdict is `Vouched`, `NoKey` (no key to check with yet —
 transient), `BadSignature` (also: the key does not derive to the named
 device) or `Expired` (signed and naming its device, but expired longer ago
-than a message may wait at the relay). Until 2026-10-03 each client also
+than a message may wait at the relay); see
+[Appendix A §A.14](./appendix-a-errors.md#a14-sender-certificate-verdict--certificateverdict)
+for each verdict's cause and the client's part. Until 2026-10-03 each client also
 checked the Ed25519 signature itself, with different age and device rules
 from the core's; that second check is gone.
 

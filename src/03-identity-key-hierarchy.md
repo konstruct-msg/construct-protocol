@@ -385,6 +385,8 @@ not post-quantum (`PQC-2`, [Chapter 7 §7.3](./07-implementation-status.md#73-op
 What has changed already: the decision is made in the core
 (`SenderCertificate::verdict`, `key_transparency::verify_proof`), not by
 each client, so it changes for every client at once when a root is pinned.
+The refusal reasons behind those verdicts (`TrustError`) are listed in
+[Appendix A §A.13](./appendix-a-errors.md#a13-server-signature-trust--trusterror).
 
 The root's private half is two 32-byte seeds (Ed25519, ML-DSA-65), each
 written as a 24-word BIP-39 phrase — 48 words

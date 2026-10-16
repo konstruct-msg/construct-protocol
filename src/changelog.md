@@ -67,6 +67,10 @@ the minor version, as v0.3.0 did. Also corrects four statements that were alread
 - **Corrected: one AD version** ([Ch. 5 §5.4.1](./05-message-encryption.md#541-one-ad-version)).
   §5.4.1 and the §5.8 pseudocode still prescribed the AD v2 retry that construct-core 0.24.2
   removed and that v0.3.0 already listed as resolved (`SEC-006`).
+- **Appendix A: error and verdict enums added since core 0.28** ([§A.12–§A.18](./appendix-a-errors.md#a12-media-blobs--mediaerror)):
+  `MediaError`, `TrustError`, `CertificateVerdict`, `KtVerdict`, `HistoryError`, `LocalStoreError`,
+  `PeekVerdict`, each with its variants, cause, client behaviour and source. Source line references
+  across the chapters were also refreshed (editorial).
 - **Corrected elsewhere**: the introduction named construct-core v0.9.x, a document version of
   v0.1.2, an MIT licence for the reference implementation (it is Apache-2.0), and "who sent a
   sealed message, calls" as classical; the Chapter 1 coverage table still listed the PQR-1 gap
