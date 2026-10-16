@@ -1,9 +1,9 @@
 # Introduction
 
-> **Document status:** v0.1.2 — early draft.
-> **Implementation reference:** `construct-core` v0.9.x (see [Implementation Status](./07-implementation-status.md)).
+> **Document status:** v0.4.0 — draft, unreleased (see the [Changelog](./changelog.md)).
+> **Implementation reference:** `construct-core` 0.48.x (see [Implementation Status](./07-implementation-status.md)).
 > **Document license:** [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) ·
-> **Reference implementation:** MIT.
+> **Reference implementation:** Apache-2.0.
 
 This document is the public technical specification of the **Konstruct
 messenger protocol** — what it does, how it does it, and where it
@@ -37,8 +37,10 @@ handshake + Double Ratchet for ongoing messaging — extended with:
   per message since construct-core 0.24.0 (§2.4).
 
   Post-quantum protection covers the **content** of one-to-one messages
-  and attachments. Who sent a sealed message, calls and groups are still
-  classical; [Threat Model — Post-quantum coverage](./01-threat-model.md#post-quantum-coverage)
+  and attachments, who sent a sealed one-to-one message, and the key
+  exchange of calls. Server signatures, device authentication, groups
+  and Privacy Pass are still classical;
+  [Threat Model — Post-quantum coverage](./01-threat-model.md#post-quantum-coverage)
   lists every layer.
 - Metadata-minimising sealed sender, backed by Privacy Pass tokens for
   abuse resistance.

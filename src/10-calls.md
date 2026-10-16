@@ -35,7 +35,13 @@ the SDP (which carries the DTLS fingerprints and ICE ufrag/pwd) nor the
 sender identity. On the ordinary message path, the real call content type
 (`12`) rides inside the encrypted KNST frame; `SealedInner.content_type`
 and the outer envelope remain `UNSPECIFIED`
-(`construct-ios` `Services/Calls/CallManager.swift:1295`-`:1300`).
+(`construct-ios` `Services/Calls/CallManager.swift:1295`-`:1300`). The
+receiver's core names a decrypted call signal by that byte and hands its
+body to the client as `CallSignalDecrypted` (construct-core 0.29.0,
+[Chapter 5 §5.8.4](./05-message-encryption.md#584-the-plaintext-frame-knst-and-what-a-decrypted-message-is));
+until then the core read only the envelope's type, so a sealed call
+signal surfaced as an ordinary decrypted message and each client had to
+look inside the frame itself.
 The client-side framing that carries the suite id and PQ ratchet fields
 for a call signal is `CallSignalCrypto` (`Services/Calls/CallSignalCrypto.swift:87`-`:104`);
 orchestration is in `Services/Calls/CallManager.swift`.

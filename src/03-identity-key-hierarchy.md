@@ -96,9 +96,16 @@ public key, truncated to 32 characters (`construct-core/src/device_id.rs:16`-`:4
 An interoperable implementation MUST produce the same value from the
 same `IK_pub`.
 
-`device_id` is **not** the Double Ratchet AEAD sender/receiver
-identifier in current AD. AD version 3 uses the sender and receiver
-server UUIDs plus the session id (§5.4).
+`device_id` **is** the Double Ratchet AEAD sender/receiver identifier:
+a session is a ratchet between two devices, and AD version 3 binds the
+two device ids plus the session id (§5.4). The core checks that a peer's
+identity key derives to the `contact_id` a session is addressed by before
+it seals a first flight to it (`construct-core/src/orchestration/orchestrator.rs:1631`).
+The server's account UUID never enters the session layer.
+
+> **Corrected 2026-10-16.** Until this revision the paragraph said the
+> opposite — that the AD binds server account UUIDs. Clients moved the
+> session layer to device ids on 2026-08-26; the text was not updated.
 
 ## 3.5 Medium-term keys: signed prekeys
 
@@ -219,7 +226,7 @@ guarantee on its platform:
 | Key | Access class |
 |---|---|
 | IK_priv, SK_priv | After-first-unlock, device-only, non-syncable |
-| Session JSON (incl. `dh_ratchet_private`, RK, chain keys) | When-unlocked, device-only |
+| Session state, CFE records (incl. `dh_ratchet_private`, RK, chain keys) | After-first-unlock, device-only — a push decrypt runs while the device is locked (`construct-ios` `Security/KeychainManager.swift:21`) |
 | Refresh / auth tokens | After-first-unlock |
 | `device_id` (derived value) | After-first-unlock |
 
@@ -305,3 +312,80 @@ handshake MUST NOT proceed.
 
 These rotation invariants are what give the protocol its forward
 secrecy and post-compromise security properties (Chapters 1 and 5).
+
+## 3.11 Server signing keys, rooted offline
+
+The server signs three kinds of object a client checks: sender
+certificates (Chapter 8 §8.3), Key Transparency tree heads (Chapter 13)
+and sticker manifests. Until construct-core 0.32.0 (2026-10-03) all three
+were signed with one Ed25519 key that had no id and no lifetime, and
+clients learned that key from the server's own `/.well-known` document —
+so whoever held the server chose the key clients trusted, and a leaked
+key signed for ever. construct-core 0.32.0 implements the replacement;
+**it is not yet in force, because no root is pinned** (below).
+
+**The chain.** Both steps are hybrid Ed25519 + ML-DSA-65 signatures
+(§2.3; both halves must verify):
+
+```text
+root (offline; its public key pinned in the client build)
+  └─ delegation: "this key, for this purpose, from not_before to not_after" — signed by a root
+       └─ server signature: label(purpose) ‖ kid ‖ body                    — signed by that key
+
+delegation = 0x01 ‖ purpose(1) ‖ BE64(not_before) ‖ BE64(not_after)
+             ‖ public_key(1984) ‖ root_signature(3373)                     — 5 375 bytes
+root signs   "konstruct/v1/delegation" ‖ 0x01 ‖ purpose ‖ BE64 ‖ BE64 ‖ public_key
+kid        = SHA-256("konstruct/v1/kid" ‖ public_key)[0..16]
+label      = "konstruct/v1/sender-cert" (purpose 1) | "konstruct/v1/kt-head" (2)
+           | "konstruct/v1/sticker-manifest" (3)
+```
+
+Every variable-length field of a signed body is length-prefixed
+(`BE16` for certificate fields). The Ed25519 certificate signature that
+preceded it had neither a label nor length prefixes, so `"ab" ‖ "c"` and
+`"a" ‖ "bc"` signed the same bytes. The kid is derived from the key, so
+the id a signature names and the key that checks it cannot disagree.
+The format is one crate, `construct-core/server-trust/src/lib.rs`, used
+by the core, the server and the offline root tool alike; its bytes are
+pinned by conformance vectors (`construct-core/tests/conformance/knst_server_trust.json`).
+
+**What a client accepts** (`ServerKeyRing`,
+`construct-core/src/crypto/server_trust.rs:139`-`:213`):
+
+1. A delegation is admitted only if a pinned root signed it
+   (`verify_rooted`, `:110`). The platform hands delegations to the core
+   (`OrchestratorCore::admit_server_delegations`); a server that serves a
+   delegation cannot have made it.
+2. A server signature is accepted only from an admitted key, only for the
+   purpose its delegation names, only if its signing time falls inside the
+   delegation's window, and only if the verifier's clock is no later than
+   the window's end plus the purpose's grace: a sender certificate's grace
+   is its one-day maximum lifetime plus the relay's 7-day queue; a tree head
+   has none (it is checked when fetched); a sticker manifest is not bounded
+   (`Purpose::grace_secs`, `server-trust/src/lib.rs:99`-`:105`). The grace,
+   measured on the verifier's clock, is what ends a leaked key, since its
+   holder can write any signing time it likes.
+3. With roots pinned, an object that carries the hybrid signature is judged
+   by it **alone** — a good Ed25519 signature beside a failing hybrid one
+   does not rescue it. An object without the hybrid signature is still
+   judged by Ed25519 until `HYBRID_REQUIRED` is set (`server_trust.rs:56`,
+   currently `false`, while servers that do not sign hybrid are still
+   answering). A delegation not yet admitted is transient: the open waits
+   rather than refuses.
+
+**Status today.** `PINNED_ROOTS` is empty
+(`construct-core/src/crypto/server_trust.rs:50`): no root ceremony has
+taken place, so no delegation can be admitted and the hybrid signature
+decides nothing. Until a root is pinned, a client judges certificates and
+tree heads exactly as before 0.32.0 — by Ed25519 against the keys the
+platform hands to the core (`set_trusted_server_keys`: the server's
+`/.well-known` key and any keys pinned in the app). The server can
+therefore still choose the key a client trusts, and server signatures are
+not post-quantum (`PQC-2`, [Chapter 7 §7.3](./07-implementation-status.md#73-open-security-issues)).
+What has changed already: the decision is made in the core
+(`SenderCertificate::verdict`, `key_transparency::verify_proof`), not by
+each client, so it changes for every client at once when a root is pinned.
+
+The root's private half is two 32-byte seeds (Ed25519, ML-DSA-65), each
+written as a 24-word BIP-39 phrase — 48 words
+(`server_trust::root_words`); it never touches a server.

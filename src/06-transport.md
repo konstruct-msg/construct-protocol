@@ -191,7 +191,7 @@ backend strategies:
 
 | Backend | Status | Wire shape on the network |
 |---|---|---|
-| **veil-front** | **Production** | TLS 1.3 to an honest cover application; the relay routes valid AUTH frames to the tunnel and everything else to the cover app via a constant-shape gate. The primary (and only production) obfuscation backend on mobile. |
+| **veil-front** | **Production** | TLS 1.3 to an honest cover application; the relay routes valid AUTH frames to the tunnel and everything else to the cover app via a constant-shape gate. The primary (and only production) obfuscation backend on mobile. Key exchange: the client's TLS profiles (rustls on `aws-lc-rs`) offer the hybrid X25519MLKEM768 group first, then X25519, P-256, P-384 (construct-veil `src/tls_fingerprint.rs`, the revision construct-core pins since 0.31.2); the group agreed is the front's choice (`PQC-6`). |
 | **obfs4** / **WebTunnel** | **Retired** | Superseded by veil-front and cut by active DPI in the target region. Adapters remain in-tree but are not registered on mobile builds; the standalone relay repository is archived. |
 
 The VEIL coordinator (in `construct-veil/src/veil/coordinator.rs`)

@@ -134,13 +134,15 @@ handshake left unanswered for 7 days — it opens a new one
 
 **What stays classical.** A DECRYPTION_ERROR about a first message the
 recipient could not read goes in an X25519 box to the writer's identity key
-(`sealed_sender/mod.rs:67`), and device metadata goes to siblings the same
+(`sealed_sender/mod.rs:72`, `seal_to_x25519_public`), and device metadata goes to siblings the same
 way. Tracked as `PQC-1`
 ([Chapter 7 §7.3](./07-implementation-status.md#73-open-security-issues)).
 New normal sealed sends leave `content_type` at `UNSPECIFIED = 0`,
 which proto3 omits from the wire. The real application content type
-rides inside the encrypted payload, currently as KNST byte 5 on framed
-payloads. The client constrains this boundary with `SealedEnvelopeType`:
+rides inside the encrypted payload, as byte 5 of the KNST frame
+([Chapter 5 §5.8.4](./05-message-encryption.md#584-the-plaintext-frame-knst-and-what-a-decrypted-message-is)),
+and since construct-core 0.29–0.30 the core classifies a decrypted
+message by that byte, not by the envelope. The client constrains this boundary with `SealedEnvelopeType`:
 `.generic` serialises to no content type, and the one structural
 exception is `DECRYPTION_ERROR` (28): it answers a message the ratchet
 could not read, so it cannot be encrypted with that ratchet. Until
@@ -193,31 +195,57 @@ SenderCertificate {
   issued_at           : int64
   expires_at          : int64    // typically issued_at + 24h
   server_signature    : bytes    // Ed25519 by the sender's home server
+  server_kid          : bytes    // field 8 (core 0.32): id of a delegated hybrid key; empty if none
+  server_signature_hybrid : bytes // field 9 (core 0.32): Ed25519 ‖ ML-DSA-65 (3373 B) by that key
 }
 ```
 
 The certificate is issued and signed by the sender's home server
-(identity-service) with the same Ed25519 key published at
-`.well-known/konstruct`. The signature covers the direct big-endian
-concatenation `sender_user_id || sender_domain || sender_identity_key ||
-sender_device_id || issued_at || expires_at` — one canonical format, pinned
-in stealth-sealed-sender v2 Phase 3 (server
-`identity-service::build_sender_cert_sign_payload`; client `construct-ios`
-`Security/StealthSenderService.swift` `buildCertPayload`).
+(identity-service). The Ed25519 `server_signature` is made with the key
+published at the server's `/.well-known` document and covers the direct
+big-endian concatenation `sender_user_id || sender_domain ||
+sender_identity_key || sender_device_id || issued_at || expires_at`, with no
+label and no length prefixes (`build_cert_sign_payload`,
+`construct-core/src/crypto/sealed_sender/mod.rs:151`). The hybrid signature,
+when present, is made by a key delegated from an offline root and covers
+`"konstruct/v1/sender-cert" ‖ kid ‖ body` with every field length-prefixed,
+and a certificate it signs may claim at most a day of lifetime (Chapter 3
+§3.11).
 
-The recipient attests the sender through one of two levers, strongest
-first (`SenderVouchBasis` in `StealthSenderService.swift`):
+**The core judges the certificate** (since construct-core 0.32.0;
+`SenderCertificate::identity_for_opening` and `::verdict`,
+`sealed_sender/mod.rs:299`-`:417`; UDL `certificate_verdict`). With a root
+pinned and the hybrid signature present, the hybrid signature decides
+alone; otherwise the Ed25519 signature decides against the keys the
+platform handed to the core. **No root is pinned yet** (`PINNED_ROOTS` is
+empty, `server_trust.rs:50`), so today every certificate is judged by
+Ed25519 against the server's published key and the keys pinned in the
+app. The verdict is `Vouched`, `NoKey` (no key to check with yet —
+transient), `BadSignature` (also: the key does not derive to the named
+device) or `Expired` (signed and naming its device, but expired longer ago
+than a message may wait at the relay). Until 2026-10-03 each client also
+checked the Ed25519 signature itself, with different age and device rules
+from the core's; that second check is gone.
 
-1. **KT lever** (`.kt`): the certificate's `sender_identity_key` matches the
+The recipient attests the sender through one of three levers
+(`SenderVouchBasis` in `construct-ios` `Security/StealthSenderService.swift`):
+
+1. **Session lever** (`.session`): the message came in a session envelope,
+   and the session pair whose tag matched names the writer. Post-quantum;
+   no server key involved.
+2. **KT lever** (`.kt`): the certificate's `sender_identity_key` matches the
    recipient's locally stored, key-transparency-verified `knownIdentityKey`
    for that contact. No dependency on any fetched server key.
-2. **Signature lever** (`.signature`): the certificate's Ed25519 signature
-   validates against the sender's home-server public key (fetched or
-   pinned). Used on first contact, before a local KT key exists.
+3. **Signature lever** (`.signature`): the core's verdict on the
+   certificate is `Vouched`. Used on first contact, before a local KT key
+   exists.
 
-**Delivery is not gated on attestation.** If neither lever vouches (missing
-or stale bundle key, expired cert), the message is still delivered and
-logged as `UNVOUCHED` with a reason — the Double Ratchet is the real
+**Delivery on an existing session is not gated on attestation.** A message
+that opens a session is: it opens only from a certificate that passes
+`identity_for_opening` (Chapter 4 §4.4.2), and with no key to check it
+yet it waits rather than opens. On a session already held, if no lever
+vouches (missing or stale server key, expired cert), the message is still
+delivered and logged as `UNVOUCHED` with a reason — the Double Ratchet is the real
 authenticator, and an unvouched attestation triggers a bundle-key refresh
 so the next message re-vouches (`MessageRouter.routeIncomingMessage`,
 `construct-ios`). This is a deliberate availability-over-strictness choice:
@@ -327,8 +355,9 @@ still observe the following. This is the honest counterpart to §8.1.
 | **Sender** identity (per message) | No (sealed) | After first contact, only the recipient's session pair names it (session envelope). |
 | **Sender** of a session's **first** message | No (sealed whole, construct-core 0.27) | The certificate and the handshake header are inside the first-flight box. The Android client still fetches bundles over an authenticated call, so the Kyber prekey id left outside can tie its first contacts to the account (`BF-1`). The bundle fetch and the send share a connection address — the network-adversary non-goal. |
 | **Recipient** identity + timing | **Yes** | Required to deliver; `SealedInner.recipient_user_id`. |
-| Message **kind** (`content_type`) | No for ordinary sealed traffic | Only the deprecated/structural exceptions 21 and 24 may appear before decryption; normal sealed traffic leaves the field absent. |
+| Message **kind** (`content_type`) | No for ordinary sealed traffic | Normal sealed traffic leaves the field absent; the one structural exception is a DECRYPTION_ERROR (28) outside a session envelope (§8.2). The kind is byte 5 of the encrypted KNST frame. Until 2026-10-16 this row named 21 and 24, which nothing sends since 2026-09-28. |
 | Ciphertext **size after padding**, volume | **Yes** | Padding buckets blunt but do not erase this. |
+| Attachment **size** | A Padmé bucket, not the size (construct-core 0.33.0) | The media server sees the blob's length, padded to at most 12 % over the file and never under 4 096 bytes ([Chapter 2 §2.2.3](./02-cryptographic-primitives.md#223-chacha20-poly1305-aead)); before 0.33.0 it saw the size to the byte. A legacy blob uploaded before then still has its exact size. |
 | **Contact graph** | **Yes** | Contact relationships are stored to route streams. |
 | Connection **IP** (live) | **Yes** | At connection time; only a salted hash is retained (§8.6). |
 | `sender_id → recipient_id` edge | Not from one sealed message | May still be inferable from timing/volume correlation — the network-adversary non-goal. |

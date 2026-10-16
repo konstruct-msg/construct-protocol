@@ -196,14 +196,16 @@ could open, and a lost first message cost the session until a reset.
 Bob does **not** fetch Alice's bundle to open. A sealed message carries a sender certificate
 (§8), and the certificate names Alice's identity key and device id, signed by the server.
 Bob's core opens with the key the certificate names once the certificate passes
-`identity_for_opening` (`construct-core/src/crypto/sealed_sender/mod.rs:245`):
+`identity_for_opening` (`construct-core/src/crypto/sealed_sender/mod.rs:299`):
 
-1. The certificate signature verifies under one of the server's certificate-signing keys the
-   client holds. With no such key held yet, nothing is dropped and the open is retried later.
+1. The certificate signature verifies under a server key the client accepts
+   (`check_signature`, `:323`; Chapter 3 §3.11): a delegated hybrid key once a root is pinned,
+   otherwise one of the Ed25519 certificate-signing keys the platform handed to the core. With
+   no such key held yet, nothing is dropped and the open is retried later.
 2. The identity key is 32 bytes and **derives to the device id** the certificate names. A
    certificate naming someone else's device is refused.
 3. The certificate has not been expired for longer than a message may wait at the relay
-   (`MAX_DELIVERY_AGE_SECS`, 7 days, `sealed_sender/mod.rs:207`).
+   (`MAX_DELIVERY_AGE_SECS`, 7 days, `sealed_sender/mod.rs:213`).
 
 The signature is mandatory here and only here. Anyone who knows Bob's public identity key can
 seal an envelope to him, so an unsigned certificate is a stranger's claim to be any account.
@@ -214,6 +216,12 @@ authenticates it.
 
 What this removes: the server no longer learns, from a bundle fetch, whom a sealed first message
 was from, and the receiver no longer guesses which of the sender's devices wrote it.
+
+**Every message names its writer.** A first message names its device through the certificate; a
+later sealed message through the session envelope's tag (Chapter 8). A receiver therefore decrypts
+a message on the one session of the device it names, and never tries it against each of a peer's
+devices in turn. construct-core 0.34.0 (2026-10-04) removed the export that planned such a walk
+(`plan_receiving_decrypt`); it had been used only for unsealed messages from a peer.
 
 ### 4.4.3 Key agreement
 
