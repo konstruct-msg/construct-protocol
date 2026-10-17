@@ -131,9 +131,10 @@ its user replies.
 Signal's SPQR carries its own symmetric chain inside the post-quantum
 component, so the post-quantum contribution ratchets between rekeys and
 the post-quantum half of forward secrecy has the same per-message
-granularity as the classical half.
+granularity as the classical half. Each epoch's ML-KEM Braid output
+reseeds that chain.
 
-Konstruct's Suite 4 now does the same in kind, by a different mechanism. A completed epoch's
+Konstruct's Suite 4 does the same in kind, by a different mechanism. A completed epoch's
 ML-KEM-768 secret is spent once, into two directional chain keys (§2.4.1), and is never itself
 stored; each message takes the next key of its sender's chain, and a receiver's PQ key for a read
 message is derivable by neither side afterwards — the chain that produced it has already stepped
@@ -148,6 +149,41 @@ already read, regardless of epoch, whether or not they can also break X25519. Wh
 recover is the *future* of the current epoch's chains and any not-yet-consumed skipped key within
 `PQ_CHAIN_RETENTION` (§2.4.3) — the same residual an equivalent compromise leaves against the
 classical chain.
+
+### Healing after a state compromise
+
+Per-message granularity protects what was already read. How quickly the
+protocol heals *after* a state is stolen is a separate property, and
+there Suite 4 is slower than SPQR:
+
+| | Konstruct Suite 4 | Signal SPQR |
+|---|---|---|
+| Epoch frequency | At least every 16 DH turns or 7 days, whichever comes first (`pq_ratchet_interval`, `pq_ratchet_max_age_seconds`; construct-core `src/config.rs:68,73`, defaults `:146-147`) | The next epoch starts as soon as the previous one completes: a few exchanges |
+| Who generates the encapsulation key | Always the DR initiator (`maybe_advance_pq_ratchet`, `maybe_start_pq_exchange_by_age`: `is_pq_initiator` only; `double_ratchet/internals.rs:312,330`) | The roles alternate |
+| Wire form | The whole encapsulation key (1184 B) or ciphertext (1088 B) in the WirePayload PQ section of every outgoing frame, receipts included, until implicitly acknowledged; outside the plaintext padding (§2.4.4 rule 2; [Chapter 5 §5.3](./05-message-encryption.md#53-wire-format-wirepayload-header)) | Erasure-coded chunks of uniform size |
+
+Against an adversary who steals a session state and later has a quantum
+computer, Suite 4 heals within up to a week and SPQR within a few
+messages. On post-quantum healing after compromise Suite 4 is weaker.
+The classical Double Ratchet heals in one round trip, but that does not
+close the gap: an adversary with a quantum computer recovers the
+classical half of every new key, so only the post-quantum half still
+protects, and it renews only when an epoch completes.
+
+The initiator role adds an asymmetry. The decapsulation key of a pending
+proposal lives in the initiator's state, so a state stolen from the
+initiator while a proposal is pending yields that key, and with it the
+next epoch's secret; the exchange after that heals. The worst case is
+about twice the cadence, 2 × 7 days. A responder's stolen state does not
+reveal an epoch that has not been proposed yet, so the initiator is the
+more valuable target. SPQR alternates the roles and has no such
+distinction.
+
+Closing the gap is future work, tracked as `PQR-3` and `PQR-5`
+([Chapter 7 §7.3](./07-implementation-status.md#73-open-security-issues)):
+chunked encapsulation keys and ciphertexts carried inside the padded
+ciphertext, continuous epochs, and alternating roles ("PQR v3"). No date
+is set.
 
 ## B.7 Authenticating the peer
 
