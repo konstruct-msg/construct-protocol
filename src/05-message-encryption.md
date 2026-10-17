@@ -607,8 +607,11 @@ with **that** device acts. That key travels only in the header of the unread mes
 envelope the relay cannot open, so the relay, a stranger, or a peer naming another device cannot
 produce a matching one; a made-up key, a right key filed under another device, a replay of an
 error already answered, and a burst of copies each draw at most the one retire and one resend of
-the table above (construct-core `orchestrator.rs`, `pqxdh_v2_tests`: the five
-`*decryption_error*`-path tests added for TODO 168).
+the table above (construct-core `orchestrator.rs`, `pqxdh_v2_tests`: `a_made_up_ratchet_key_retires_nothing_and_opens_nothing`,
+`a_boxed_error_with_the_right_key_filed_under_another_device_does_nothing`,
+`a_replayed_error_retires_nothing_more_and_resends_nothing_more`,
+`a_burst_of_one_error_draws_one_retire_and_one_resend`,
+`an_enveloped_error_names_the_pair_it_came_by_not_the_state_it_quotes`).
 
 ### 5.10.3 Receiver
 
