@@ -126,7 +126,22 @@ Konstruct guarantees:
   and key eviction).
 - Self-healing of future messages after at most one round-trip via the
   DH ratchet step — provided the attacker is no longer active in the
-  network path.
+  network path. Against an adversary who also has a quantum computer
+  the classical step does not heal; post-quantum healing waits for the
+  next completed epoch, at most 7 days, and up to about twice that if
+  the stolen state is the initiator's with a proposal pending
+  ([Appendix B §B.6](./appendix-b-pq-comparison.md#b6-granularity-of-the-post-quantum-guarantee)).
+
+Forward secrecy holds up to the retention window, not to the moment of
+compromise. A stolen snapshot contains, besides the current state: up to
+3 previous states per peer device, kept for 7 days
+(`MAX_PREVIOUS_STATES`, `PREVIOUS_STATE_TTL_SECONDS`,
+`construct-core/src/orchestration/session_lifecycle.rs:29,37`); the
+previous epoch's post-quantum chain (`PQ_CHAIN_RETENTION = 2`,
+`double_ratchet/mod.rs:246`); and up to 1000 skipped message keys for
+7 days (`max_skipped_messages`, `max_skipped_message_age_seconds`,
+`config.rs`). Messages those keys open are readable from the snapshot
+([Chapter 5 §5.9](./05-message-encryption.md#59-previous-states)).
 
 ### Spam / Sybil adversary
 

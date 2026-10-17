@@ -488,8 +488,14 @@ an independently-sized epoch count.
    chain that produced it has already moved past that index. See
    [Appendix B §B.6](./appendix-b-pq-comparison.md#b6-granularity-of-the-post-quantum-guarantee)
    for how this compares with other deployed designs — Suite 4 now matches Signal SPQR's
-   granularity in kind, though not in mechanism (SPQR ratchets a symmetric chain seeded once per
-   handshake; Suite 4 reseeds two chains from a fresh ML-KEM secret every epoch).
+   granularity in kind. Both designs reseed a symmetric chain from a fresh ML-KEM secret every
+   epoch; that reseeding is where each one's post-quantum healing after a compromise comes from.
+   They differ in how often an epoch completes (Suite 4: at least every 16 DH turns or 7 days;
+   SPQR: the next epoch starts as soon as the previous one completes), in who generates the
+   encapsulation key (Suite 4: always the DR initiator; SPQR: the roles alternate), and in how the
+   encapsulation key and ciphertext travel (Suite 4: whole, on every outgoing frame; SPQR:
+   erasure-coded chunks). Those differences make Suite 4 slower to heal; see
+   [Appendix B §B.6](./appendix-b-pq-comparison.md#b6-granularity-of-the-post-quantum-guarantee).
 
 6. **Every delivered message is answered through the session.** A client MUST answer each
    message it decrypts with a delivery receipt (content type 14) encrypted on the same session,
