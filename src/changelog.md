@@ -18,6 +18,13 @@ wire-incompatible in one direction: a media blob written by core ≥ 0.33.0 does
 reader older than 0.33.0 (the reverse still works). While the document is 0.x, a wire break moves
 the minor version, as v0.3.0 did. Also corrects four statements that were already wrong at v0.3.0.
 
+- **SPQR comparison corrected** (editorial; [Appendix B §B.6](./appendix-b-pq-comparison.md#b6-granularity-of-the-post-quantum-guarantee),
+  [§2.4.4](./02-cryptographic-primitives.md) rule 5). The text said SPQR seeds a symmetric chain once
+  per handshake; it reseeds every epoch. The comparison now states the real differences (epoch
+  frequency, key-generator role, wire form) and that Suite 4 is weaker on post-quantum healing
+  after a state compromise. New `PQR-5`; `PQR-3` raised to Medium because the PQ section outside
+  the padding shows when an exchange is in flight ([§8.7](./08-metadata-privacy.md)). The threat
+  model now states that forward secrecy holds up to the retention window.
 - **Server keys rooted offline — implemented, not in force** (2026-10-03, construct-core 0.32.0;
   [Ch. 3 §3.11](./03-identity-key-hierarchy.md#311-server-signing-keys-rooted-offline), new).
   Hybrid Ed25519 + ML-DSA-65 delegations from an offline root; server signatures labelled by

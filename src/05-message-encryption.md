@@ -597,6 +597,22 @@ with its own sending keys for that peer device:
 A message is resent at most once per error it is named in. The resend is an ordinary message on
 the new state, so it carries the handshake header and the receiver opens from it.
 
+Why a forged error does nothing. An error about a message inside a session envelope arrives by
+that envelope's key pair, and is filed under the pair it came by, not under any state it quotes.
+An error about a first message is a sealed box anyone holding the writer's public identity key
+can make, and the device it is filed under comes from a sender certificate the platforms do not
+refuse — so neither its sealer nor its claimed device is authenticated. What protects the writer
+is the lookup above: only a `ratchet_key` that is the sending key of the writer's **own** state
+with **that** device acts. That key travels only in the header of the unread message, inside an
+envelope the relay cannot open, so the relay, a stranger, or a peer naming another device cannot
+produce a matching one; a made-up key, a right key filed under another device, a replay of an
+error already answered, and a burst of copies each draw at most the one retire and one resend of
+the table above (construct-core `orchestrator.rs`, `pqxdh_v2_tests`: `a_made_up_ratchet_key_retires_nothing_and_opens_nothing`,
+`a_boxed_error_with_the_right_key_filed_under_another_device_does_nothing`,
+`a_replayed_error_retires_nothing_more_and_resends_nothing_more`,
+`a_burst_of_one_error_draws_one_retire_and_one_resend`,
+`an_enveloped_error_names_the_pair_it_came_by_not_the_state_it_quotes`).
+
 ### 5.10.3 Receiver
 
 The receiver sends one error per unread message and marks the message processed only once the
