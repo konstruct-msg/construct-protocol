@@ -61,7 +61,7 @@ Canonical source: `~/Code/construct-docs/decisions/rules-from-the-first-year.md`
 - **Names:** the iOS repo is `construct-ios`, not `construct-messenger`; brand is `Konstruct` in Latin (Cyrillic `Конструкт` only in Russian text).
 - **Cross-references** (agent memory): `[[reference-crypto-suites]]` is the verified algorithm list; `[[reference-public-repos]]` has the public repo names; `[[feedback-brand-naming]]` the brand rule.
 - **Build:** `mdbook serve --open` (preview at http://localhost:3000), `mdbook build` (output `./book/`). `.github/workflows/deploy.yml` publishes on every push to `main` to <https://konstruct-msg.github.io/construct-protocol/>.
-- **Reasoning goes to the vault:** a non-trivial editorial decision gets a note in `~/Code/construct-docs/wiki/sessions/YYYY-MM-DD-<topic>.md` (Context, What Changed, Why, Intended Outcome, Decisions, Open Questions). This repo holds only published artefacts.
+- **Reasoning goes to the vault:** a non-trivial editorial decision gets a note in `~/Code/construct-docs/sessions/YYYY-MM-DD-<topic>.md` (Context, What Changed, Why, Intended Outcome, Decisions, Open Questions). This repo holds only published artefacts.
 
 ## Git and process
 
