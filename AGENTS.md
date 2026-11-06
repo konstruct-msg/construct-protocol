@@ -36,7 +36,7 @@ Canonical source: `~/Code/construct-docs/decisions/rules-from-the-first-year.md`
 
 ## Rules
 
-1. **Prior art first.** A chapter on a mechanism says how Signal / MLS (RFC 9420) / Matrix solve it and why we deviate.
+1. **Prior art first.** A chapter on a mechanism says how Signal / MLS (RFC 9420) / Matrix solve it and why we deviate. Read them, do not recall them: the chapter links the code or spec it read, and says who may call theirs, what a refused caller sees, and what in ours is our own and why.
 2. **The core decides.** The spec describes what `construct-core` does; if the document and the code disagree, patch the document.
 3. **A message names the state it means.** Describe every control message by the epoch, key or number it carries; a timer or window in the text signals a missing address.
 4. **Reproduce, then fix.** A claim found wrong is checked against the code or a test run before the text is changed.
